@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Duel 2D — PixiJS + TS</title>
+    <style>
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #0e0f13; }
+      #hud {
+        position: fixed; inset: 0; pointer-events: none; display: flex; align-items: flex-start;
+        justify-content: space-between; padding: 12px 16px; gap: 12px; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; color: #e8e8e8; font-size: 14px;
+      }
+      .pill { background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12); border-radius: 999px; padding: 8px 12px; backdrop-filter: blur(4px); }
+      kbd { background: #11151a; border: 1px solid #2a2f37; border-bottom-color: #1d2228; border-radius: 6px; padding: 0 6px; font-weight: 700; }
+      #centerMsg {
+        position: fixed; left: 50%; top: 50%; transform: translate(-50%,-50%); color: #e8e8e8; text-align: center;
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; font-size: clamp(18px, 4vw, 36px); font-weight: 800; text-shadow: 0 2px 10px rgba(0,0,0,.6); white-space: pre-line; pointer-events: none;
+      }
+
+      /* Overlay dessin */
+      #overlay { position: fixed; inset: 0; display: none; place-items: center; background: rgba(0,0,0,.45); backdrop-filter: blur(2px); }
+      #drawBox {
+        width: min(90vw, 900px); height: min(80vh, 600px); background: #0f1218; border: 1px solid #273043; border-radius: 16px; box-shadow: 0 10px 40px rgba(0,0,0,.5);
+        display: grid; grid-template-rows: auto 1fr auto; overflow: hidden; pointer-events: auto; color: #d7e2ff; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      }
+      #drawHeader, #drawFooter { padding: 10px 14px; border-bottom: 1px solid #1c2433; display: flex; align-items: center; gap: 12px; }
+      #drawFooter { border-bottom: none; border-top: 1px solid #1c2433; }
+
+      /* ✅ Footer flexible et non tronqué */
+      #drawFooter {
+        justify-content: space-between;
+        flex-wrap: wrap;              /* permet le retour à la ligne */
+      }
+      #aiPanel {
+        flex: 1 1 100%;               /* prend toute la ligne si besoin */
+        min-width: 0;                 /* autorise le rétrécissement */
+        white-space: pre-wrap;        /* gère \n et wrap */
+        overflow-wrap: anywhere;      /* coupe les mots longs */
+        margin-right: 0;
+      }
+      #footerHint {
+        flex: 0 1 auto;
+        min-width: 0;
+        white-space: nowrap;
+      }
+      #footerActions {
+        display: flex; gap: 8px;
+        flex: 0 0 auto;               /* reste compact */
+      }
+
+      #drawHeader h3 { margin: 0; font-size: 16px; }
+      .hint { opacity: .8; font-size: 13px; }
+      #drawCanvas { width: 100%; height: 100%; background: #0b0e13; cursor: crosshair; display: block; }
+      .btn { pointer-events: auto; user-select: none; cursor: pointer; border-radius: 999px; border: 1px solid #2a3343; background: #121722; padding: 6px 12px; color: #d7e2ff; }
+      .btn:hover { background: #192033; }
+      .sep { opacity: .25; }
+
+      /* Optionnel : meilleure répartition sur petits écrans */
+      @media (max-width: 640px) {
+        #footerHint { order: 3; width: 100%; white-space: normal; }
+        #footerActions { order: 2; }
+        #aiPanel { order: 1; }
+      }
+    </style>
+    <!-- TensorFlow.js + MobileNet (CDN) -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.21.0/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.1"></script>
+  </head>
+  <body>
+    <div id="app"></div>
+
+    <div id="hud" aria-live="polite">
+      <div class="pill">
+        <strong>Contrôles :</strong> souris pour bouger le <span style="color:#ff5a5a;font-weight:800;">rouge</span>,
+        <kbd>Espace</kbd> tirer <span style="color:#ffd84b;font-weight:800;">jaune</span>, <kbd>R</kbd> rejouer
+      </div>
+      <div class="pill">
+        <strong>Dessin :</strong> <kbd>Entrée</kbd> pause + atelier • <kbd>C</kbd> effacer • <kbd>Ctrl</kbd>+molette épaisseur
+      </div>
+    </div>
+    <div id="centerMsg"></div>
+
+    <!-- Overlay Dessin -->
+    <div id="overlay" role="dialog" aria-modal="true" aria-label="Fenêtre de dessin">
+      <div id="drawBox">
+        <div id="drawHeader">
+          <h3>Atelier de dessin</h3>
+          <div class="hint">Maintenez le clic et tracez. <kbd>Ctrl</kbd> + molette : épaisseur. <span class="sep">|</span> <kbd>C</kbd> effacer. <span class="sep">|</span> <kbd>Entrée</kbd> pour placer</div>
+        </div>
+        <canvas id="drawCanvas"></canvas>
+        <div id="drawFooter">
+          <!-- Panneau IA : prend la largeur dispo et peut passer à la ligne -->
+          <div id="aiPanel" class="hint"><strong>IA&nbsp;:</strong> <span id="aiResult">chargement…</span></div>
+
+          <!-- Indication taille -->
+          <div id="footerHint" class="hint">La taille sera ajustée automatiquement (max ~120px) lors du placement.</div>
+
+          <!-- Boutons -->
+          <div id="footerActions">
+            <button class="btn" id="btnClear" type="button">Effacer (C)</button>
+            <button class="btn" id="btnClose" type="button">Placer (Entrée)</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

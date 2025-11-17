@@ -1,0 +1,316 @@
+import { Graphics, Text } from 'pixi.js';
+import { clamp, norm } from '@core/math';
+import type { World, Bullet } from '@types';
+
+type Vec = { x: number; y: number };
+
+enum EnemyState {
+  Idle = 'Idle',
+  Chase = 'Chase',
+  Attack = 'Attack',
+  Evade = 'Evade',
+}
+
+export class Enemy {
+  gfx = new Graphics();
+  label = new Text('', { fill: 0x4da3ff, fontSize: 12 });
+
+  r = 26;
+  color = 0x4da3ff;
+  x = 0; y = 0;
+  vx = 0; vy = 0;
+
+  // Mouvement
+  maxSpeed = 180;
+  accel = 900;
+  friction = 0.9;
+
+  // FSM
+  state: EnemyState = EnemyState.Idle;
+  stateTimer = 0;
+
+  // Idle "patrouille"
+  changeRange: [number, number] = [1.2, 2.2];
+  nextDirAt = 0;
+
+  // Tir
+  lastShoot = 0;
+  shootInterval = 4000;        // ms
+  shootDistanceMin = 140;
+  shootDistanceMax = 360;
+  wantShoot = false;
+  aimAt: Vec = { x: 0, y: 0 };
+
+  // Strafe
+  strafeSign = 1;
+
+  // Lead
+  projectileSpeed = 520; // valeur par défaut, MAJ via update(..., projectileSpeed)
+  // estimation de la vitesse du joueur
+  private lastPlayerPos: Vec | null = null;
+  private estPlayerVel: Vec = { x: 0, y: 0 };
+
+  // Evade (esquive)
+  evadeHorizon = 0.6;         // s, fenêtre de détection
+  evadeMargin = 4;            // px, marge de collision
+  evadeDuration = 0.35;       // s, durée de l'esquive
+  evadeBoost = 1.25;          // multiplicateur de vitesse
+  private evadeFrom: Vec = { x: 0, y: 0 }; // direction de danger
+
+  constructor(world: World) {
+    this.x = world.w * 0.75;
+    this.y = world.h * 0.5;
+    this.pickDir(performance.now());
+    this.draw();
+    // label en enfant de la balle pour rester attaché
+    this.gfx.addChild(this.label);
+    this.updateLabel();
+  }
+
+  // ---------- Rendu ----------
+  draw() {
+    this.gfx.clear();
+    this.gfx.beginFill(this.color);
+    this.gfx.drawCircle(0, 0, this.r);
+    this.gfx.endFill();
+    this.gfx.position.set(this.x, this.y);
+    this.label.position.set(-this.r, -this.r - 18); // au-dessus, légèrement à gauche
+  }
+
+  private updateLabel() {
+    this.label.text = `State: ${this.state}`;
+  }
+
+  // ---------- Vecteurs ----------
+  private len(v: Vec) { return Math.hypot(v.x, v.y); }
+  private normalize(v: Vec) { const L = this.len(v) || 1; return { x: v.x / L, y: v.y / L }; }
+  private sub(a: Vec, b: Vec) { return { x: a.x - b.x, y: a.y - b.y }; }
+  private add(a: Vec, b: Vec) { return { x: a.x + b.x, y: a.y + b.y }; }
+  private mul(v: Vec, s: number) { return { x: v.x * s, y: v.y * s }; }
+  private perp(v: Vec) { return { x: -v.y, y: v.x }; }
+  private dot(a: Vec, b: Vec) { return a.x * b.x + a.y * b.y; }
+
+  // ---------- FSM ----------
+  private canShoot(now: number) { return now - this.lastShoot >= this.shootInterval; }
+
+  private toState(s: EnemyState) {
+    if (this.state !== s) {
+      this.state = s;
+      this.stateTimer = 0;
+      if (s === EnemyState.Attack) this.strafeSign *= -1;
+      this.updateLabel();
+    }
+  }
+
+  // Idle
+  private stateIdle(dt: number, now: number, world: World, playerPos: Vec, dist: number, danger: boolean) {
+    if (now >= this.nextDirAt) this.pickDir(now);
+    if (danger) { this.toState(EnemyState.Evade); return; }
+    if (dist < 480) this.toState(EnemyState.Chase);
+  }
+
+  // Chase
+  private stateChase(dt: number, now: number, world: World, playerPos: Vec, dist: number, danger: boolean) {
+    if (danger) { this.toState(EnemyState.Evade); return; }
+
+    const dir = this.normalize(this.sub(playerPos, { x: this.x, y: this.y }));
+    this.accelTowards(dir, dt);
+
+    const inAttackRange = (dist >= this.shootDistanceMin && dist <= this.shootDistanceMax);
+    if (inAttackRange) this.toState(EnemyState.Attack);
+    if (dist > 720) this.toState(EnemyState.Idle);
+  }
+
+  // Attack
+  private stateAttack(dt: number, now: number, world: World, playerPos: Vec, dist: number, danger: boolean) {
+    if (danger) { this.toState(EnemyState.Evade); return; }
+
+    const dirToPlayer = this.normalize(this.sub(playerPos, { x: this.x, y: this.y }));
+    const desiredDist = clamp(dist, this.shootDistanceMin + 20, this.shootDistanceMax - 20);
+
+    let move: Vec = { x: 0, y: 0 };
+    if (dist < desiredDist) move = this.mul(dirToPlayer, -1);
+    else if (dist > desiredDist) move = dirToPlayer;
+
+    const strafe = this.mul(this.perp(dirToPlayer), 0.8 * this.strafeSign);
+    move = this.normalize(this.add(move, strafe));
+    this.accelTowards(move, dt);
+
+    // Tir avec lead
+    const inAttackRange = (dist >= this.shootDistanceMin && dist <= this.shootDistanceMax);
+    this.wantShoot = false;
+    if (inAttackRange && this.canShoot(now)) {
+      const lead = this.leadAim(
+        { x: this.x, y: this.y },
+        playerPos,
+        this.estPlayerVel,
+        this.projectileSpeed
+      );
+      this.aimAt = lead ?? { x: playerPos.x, y: playerPos.y };
+      this.wantShoot = true;
+      // lastShoot sera posé par main.ts au moment du spawn
+    }
+
+    if (dist > this.shootDistanceMax + 80) this.toState(EnemyState.Chase);
+  }
+
+  // Evade
+  private stateEvade(dt: number, now: number, world: World, playerPos: Vec, dist: number) {
+    // dash perpendiculaire au danger + petit boost
+    const away = this.perp(this.normalize(this.evadeFrom));
+    const move = this.normalize(away);
+    this.accelTowards(this.mul(move, this.evadeBoost), dt);
+
+    if (this.stateTimer >= this.evadeDuration) {
+      // revenir à un état logique selon la distance
+      if (dist >= this.shootDistanceMin && dist <= this.shootDistanceMax) this.toState(EnemyState.Attack);
+      else if (dist < 720) this.toState(EnemyState.Chase);
+      else this.toState(EnemyState.Idle);
+    }
+  }
+
+  // ---------- Moteur mouvement ----------
+  private accelTowards(dir: Vec, dt: number) {
+    const ax = dir.x * this.accel;
+    const ay = dir.y * this.accel;
+    this.vx += ax * dt;
+    this.vy += ay * dt;
+
+    this.vx *= this.friction;
+    this.vy *= this.friction;
+
+    const speed = Math.hypot(this.vx, this.vy);
+    if (speed > this.maxSpeed) {
+      const k = this.maxSpeed / (speed || 1);
+      this.vx *= k; this.vy *= k;
+    }
+  }
+
+  // ---------- Idle pickDir ----------
+  pickDir(now: number) {
+    const [minS, maxS] = this.changeRange;
+    this.nextDirAt = now + (minS + Math.random() * (maxS - minS)) * 1000;
+    let dx = (Math.random() - 0.5) * 2;
+    let dy = (Math.random() - 0.5) * 2;
+    const d = norm({ x: dx, y: dy });
+    this.vx = d.x * this.maxSpeed * 0.6;
+    this.vy = d.y * this.maxSpeed * 0.6;
+  }
+
+  // ---------- Lead (résolution quadratique) ----------
+  private leadAim(pb: Vec, pr: Vec, vr: Vec, vp: number): Vec | null {
+    // Résout || (pr + vr*t) - pb || = vp * t
+    const r = this.sub(pr, pb);
+    const a = this.dot(vr, vr) - vp * vp;
+    const b = 2 * this.dot(r, vr);
+    const c = this.dot(r, r);
+
+    const EPS = 1e-6;
+    let t: number | null = null;
+
+    if (Math.abs(a) < EPS) {
+      if (Math.abs(b) < EPS) return null;
+      t = -c / b;
+    } else {
+      const disc = b * b - 4 * a * c;
+      if (disc < 0) return null;
+      const sdisc = Math.sqrt(disc);
+      const t1 = (-b - sdisc) / (2 * a);
+      const t2 = (-b + sdisc) / (2 * a);
+      t = Math.min(t1, t2);
+      if (t < EPS) t = Math.max(t1, t2);
+    }
+    if (!t || t < EPS) return null;
+    return this.add(pr, this.mul(vr, t));
+  }
+
+  // ---------- Détection de danger (esquive) ----------
+  private detectIncomingDanger(bullets: Bullet[]): { danger: boolean; dir: Vec } {
+    // Vérifie les balles "player" et prédit la distance minimale dans un horizon temporel
+    let worst: { t: number; dir: Vec } | null = null;
+
+    const enemyPos: Vec = { x: this.x, y: this.y };
+    const R = this.r; // rayon ennemi
+
+    for (const b of bullets) {
+      if (b.from !== 'player') continue;
+
+      const bulletPos = { x: b.gfx.x, y: b.gfx.y };
+      const bulletVel = b.v; // vitesse constante
+      const relPos = this.sub(bulletPos, enemyPos);   // p_b - p_e
+      const relVel = this.sub(bulletVel, { x: this.vx, y: this.vy }); // v_b - v_e
+
+      const relSpeed2 = this.dot(relVel, relVel);
+      if (relSpeed2 <= 1e-6) continue;
+
+      // temps du point de rapprochement minimal
+      const tStar = - this.dot(relPos, relVel) / relSpeed2;
+
+      if (tStar < 0 || tStar > this.evadeHorizon) continue; // hors fenêtre
+
+      const closest = this.add(relPos, this.mul(relVel, tStar));
+      const distMin = this.len(closest);
+      const safeDist = R + b.r + this.evadeMargin;
+
+      if (distMin <= safeDist) {
+        const dir = this.normalize(relVel); // direction d'arrivée du danger
+        if (!worst || tStar < worst.t) worst = { t: tStar, dir };
+      }
+    }
+
+    if (worst) return { danger: true, dir: worst.dir };
+    return { danger: false, dir: { x: 0, y: 0 } };
+  }
+
+  // ---------- Update ----------
+  update(
+    dt: number,
+    now: number,
+    world: World,
+    playerPos: Vec,
+    bullets: Bullet[],
+    projectileSpeed: number
+  ) {
+    // MAJ vitesse balle (pour le lead)
+    this.projectileSpeed = projectileSpeed;
+
+    // Estimation vitesse du joueur (à partir de la frame précédente)
+    if (this.lastPlayerPos) {
+      const inv = 1 / Math.max(dt, 1e-6);
+      this.estPlayerVel = { x: (playerPos.x - this.lastPlayerPos.x) * inv, y: (playerPos.y - this.lastPlayerPos.y) * inv };
+      // lissage léger
+      this.estPlayerVel.x = 0.7 * this.estPlayerVel.x;
+      this.estPlayerVel.y = 0.7 * this.estPlayerVel.y;
+    }
+    this.lastPlayerPos = { ...playerPos };
+
+    // Perception
+    const toPlayer = this.sub(playerPos, { x: this.x, y: this.y });
+    const dist = this.len(toPlayer);
+
+    // Danger projectiles
+    const { danger, dir } = this.detectIncomingDanger(bullets);
+    if (danger) this.evadeFrom = dir;
+
+    // FSM tick
+    this.wantShoot = false; // reset intent
+    this.stateTimer += dt;
+
+    switch (this.state) {
+      case EnemyState.Idle:   this.stateIdle(dt, now, world, playerPos, dist, danger); break;
+      case EnemyState.Chase:  this.stateChase(dt, now, world, playerPos, dist, danger); break;
+      case EnemyState.Attack: this.stateAttack(dt, now, world, playerPos, dist, danger); break;
+      case EnemyState.Evade:  this.stateEvade(dt, now, world, playerPos, dist); break;
+    }
+
+    // Intégration + murs
+    this.x += this.vx * dt; this.y += this.vy * dt;
+
+    if (this.x < this.r) { this.x = this.r; this.vx = Math.abs(this.vx); }
+    if (this.x > world.w - this.r) { this.x = world.w - this.r; this.vx = -Math.abs(this.vx); }
+    if (this.y < this.r) { this.y = this.r; this.vy = Math.abs(this.vy); }
+    if (this.y > world.h - this.r) { this.y = world.h - this.r; this.vy = -Math.abs(this.vy); }
+
+    this.gfx.position.set(this.x, this.y);
+  }
+}

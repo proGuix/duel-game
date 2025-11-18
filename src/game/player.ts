@@ -21,7 +21,7 @@ export class Player {
   draw() {
     this.gfx.clear();
     this.gfx.beginFill(this.color);
-    this.gfx.drawCircle(0, 0, this.r);
+    this.gfx.circle(0, 0, this.r);
     this.gfx.endFill();
     this.gfx.position.set(this.x, this.y);
   }

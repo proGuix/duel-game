@@ -1,6 +1,6 @@
 import { Graphics, Text } from 'pixi.js';
 import type { World, Bullet } from '@types';
-import { Selector, Sequence, Condition, Action, type BTNode, type BTStatus } from '@ai/bt';
+import { Selector, Sequence, Condition, Action, type BTNode, type BTStatus, beginBTDebugFrame, endBTDebugFrame } from '@ai/bt';
 import { Blackboard, V, crownScore, detectIncomingDanger, leadAim } from '@ai/blackboard';
 
 type Vec = { x: number; y: number };
@@ -8,6 +8,7 @@ type Vec = { x: number; y: number };
 export class Enemy {
   gfx = new Graphics();
   label = new Text('', { fill: 0x4da3ff, fontSize: 12 });
+  rangeOverlay = new Graphics();
 
   // shape
   r = 26;
@@ -27,8 +28,8 @@ export class Enemy {
   shootInterval = 4000; // ms
 
   // distances & evade
-  shootDistanceMin = 140;
-  shootDistanceMax = 360;
+  shootDistanceMin = 200;
+  shootDistanceMax = 280;
   evadeHorizon = 0.6;
   evadeMargin = 4;
   evadeDuration = 0.35;
@@ -48,13 +49,18 @@ export class Enemy {
 
   // debug
   private runningNodeName = '—';
+  getBehaviorTree(): BTNode {
+    return this.tree;
+  }
 
   private evadeTimeLeft = 0;
+  nextDirAt = 0;
 
   constructor(world: World) {
     this.x = world.w * 0.75;
     this.y = world.h * 0.5;
     this.draw();
+    this.setupRangeOverlay();
     this.gfx.addChild(this.label);
     this.label.position.set(-this.r, -this.r - 18);
 
@@ -87,9 +93,24 @@ export class Enemy {
   draw() {
     this.gfx.clear();
     this.gfx.beginFill(this.color);
-    this.gfx.drawCircle(0, 0, this.r);
+    this.gfx.circle(0, 0, this.r);
     this.gfx.endFill();
     this.gfx.position.set(this.x, this.y);
+    this.drawRangeOverlay();
+  }
+  private setupRangeOverlay() {
+    this.rangeOverlay.alpha = 0.35;
+    this.rangeOverlay.eventMode = 'none';
+    this.rangeOverlay.zIndex = -1;
+    this.rangeOverlay.position.set(0, 0);
+    this.gfx.addChildAt(this.rangeOverlay, 0);
+    this.drawRangeOverlay();
+  }
+
+  private drawRangeOverlay() {
+    this.rangeOverlay.clear();
+    this.rangeOverlay.circle(0, 0, this.shootDistanceMin).stroke({ width: 2.5, color: 0xffd84b, alpha: 0.55 });
+    this.rangeOverlay.circle(0, 0, this.shootDistanceMax).stroke({ width: 2.5, color: 0xffd84b, alpha: 0.55 });
   }
   private updateLabel(name: string) {
     this.runningNodeName = name;
@@ -288,7 +309,9 @@ export class Enemy {
     this.bb.intentAimAt = undefined;
 
     // Tick BT
+    beginBTDebugFrame();
     const status = this.tree.tick(dt);
+    endBTDebugFrame();
     this.updateLabel(this.bb.runningNodeName || (status === 'Running' ? 'Running' : status));
 
     // Appliquer intents

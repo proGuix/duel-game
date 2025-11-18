@@ -33,6 +33,12 @@ async function bootstrap() {
   const enemy = new Enemy(world);
   gameLayer.addChild(player.gfx, enemy.gfx);
 
+  if (import.meta.env.DEV) {
+    import('@ui/bt-debug')
+      .then(({ initBTDebugger }) => initBTDebugger(enemy.getBehaviorTree()))
+      .catch((err) => console.warn('BT debug overlay init failed', err));
+  }
+
   // Bullets
   const bullets = new Bullets();
 
@@ -170,3 +176,4 @@ async function bootstrap() {
 }
 
 bootstrap();
+

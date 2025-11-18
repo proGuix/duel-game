@@ -14,7 +14,7 @@ export class Bullets {
     const d = norm({ x: dx, y: dy });
 
     const gfx = new Graphics();
-    gfx.beginFill(0xffd84b).drawCircle(0, 0, this.radius).endFill();
+    gfx.beginFill(0xffd84b).circle(0, 0, this.radius).endFill();
 
     const b: Bullet = {
       gfx,

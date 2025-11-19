@@ -1,9 +1,10 @@
+import { initBehaviorSelector } from '@ui/behavior-selector';
 import { Application, Container, Graphics } from 'pixi.js';
 import { Input } from '@core/input';
 import { clamp } from '@core/math';
 import type { State, World } from '@types';
 import { Player } from '@game/player';
-import { Enemy } from '@game/enemy';
+import { Enemy, enemyBehaviorOptions, type EnemyBehaviorId } from '@game/enemy';
 import { Bullets } from '@game/bullets';
 import { ObjectsLayer } from '@game/objects';
 import { Renderer } from '@game/renderer';
@@ -33,11 +34,21 @@ async function bootstrap() {
   const enemy = new Enemy(world);
   gameLayer.addChild(player.gfx, enemy.gfx);
 
+  type DebugHook = ReturnType<typeof enemy.getBehaviorTree>;
+  let refreshBTDebugger: ((root: DebugHook) => void) | null = null;
   if (import.meta.env.DEV) {
     import('@ui/bt-debug')
-      .then(({ initBTDebugger }) => initBTDebugger(enemy.getBehaviorTree()))
+      .then(({ initBTDebugger }) => {
+        refreshBTDebugger = initBTDebugger;
+        initBTDebugger(enemy.getBehaviorTree());
+      })
       .catch((err) => console.warn('BT debug overlay init failed', err));
   }
+
+  initBehaviorSelector(enemyBehaviorOptions, enemy.getBehaviorVariant(), (id) => {
+    enemy.setBehaviorVariant(id as EnemyBehaviorId);
+    refreshBTDebugger?.(enemy.getBehaviorTree());
+  });
 
   // Bullets
   const bullets = new Bullets();
@@ -176,4 +187,6 @@ async function bootstrap() {
 }
 
 bootstrap();
+
+
 

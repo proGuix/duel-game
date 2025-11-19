@@ -3,35 +3,43 @@ import { buildBTDebugTree, setBTDebugListener } from '@ai/bt';
 
 let initialized = false;
 const nodeElements = new Map<number, HTMLElement>();
+let treeContainer: HTMLDivElement | null = null;
+let panel: HTMLDivElement | null = null;
+const handleDebugUpdate = (payload: BTDebugPayload) => updateNodes(payload);
 
 export function initBTDebugger(root: BTNode) {
-  if (initialized) return;
-  initialized = true;
-
   ensureStyles();
 
-  const panel = document.createElement('div');
-  panel.id = 'btDebugPanel';
-  panel.innerHTML = `
-    <div class="bt-debug-header">
-      <strong>Behavior Tree</strong>
-      <button type="button" class="bt-debug-toggle">Masquer</button>
-    </div>
-    <div class="bt-debug-tree"></div>
-  `;
-  document.body.appendChild(panel);
+  if (!initialized) {
+    initialized = true;
 
-  const treeContainer = panel.querySelector('.bt-debug-tree') as HTMLDivElement;
+    panel = document.createElement('div');
+    panel.id = 'btDebugPanel';
+    panel.innerHTML = `
+      <div class="bt-debug-header">
+        <strong>Behavior Tree</strong>
+        <button type="button" class="bt-debug-toggle">Masquer</button>
+      </div>
+      <div class="bt-debug-tree"></div>
+    `;
+    document.body.appendChild(panel);
+
+    treeContainer = panel.querySelector('.bt-debug-tree') as HTMLDivElement;
+    const toggleBtn = panel.querySelector('.bt-debug-toggle') as HTMLButtonElement;
+    toggleBtn.addEventListener('click', () => {
+      panel?.classList.toggle('collapsed');
+      toggleBtn.textContent = panel?.classList.contains('collapsed') ? 'Afficher' : 'Masquer';
+    });
+  }
+
+  if (!treeContainer) return;
+
+  nodeElements.clear();
+  treeContainer.innerHTML = '';
   const tree = buildBTDebugTree(root);
   renderTree(tree, treeContainer, 0);
 
-  const toggleBtn = panel.querySelector('.bt-debug-toggle') as HTMLButtonElement;
-  toggleBtn.addEventListener('click', () => {
-    panel.classList.toggle('collapsed');
-    toggleBtn.textContent = panel.classList.contains('collapsed') ? 'Afficher' : 'Masquer';
-  });
-
-  setBTDebugListener((payload: BTDebugPayload) => updateNodes(payload));
+  setBTDebugListener(handleDebugUpdate);
 }
 
 function renderTree(node: BTDebugTreeNode, container: HTMLDivElement, depth: number) {

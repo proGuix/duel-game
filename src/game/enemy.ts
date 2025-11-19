@@ -5,10 +5,17 @@ import { Blackboard, V, crownScore, detectIncomingDanger, leadAim } from '@ai/bl
 
 type Vec = { x: number; y: number };
 
+export type EnemyBehaviorId = 'classic' | 'simple';
+export const enemyBehaviorOptions: { id: EnemyBehaviorId; label: string }[] = [
+  { id: 'classic', label: 'Classique' },
+  { id: 'simple', label: 'Simple' }
+];
+
 export class Enemy {
   gfx = new Graphics();
   label = new Text('', { fill: 0x4da3ff, fontSize: 12 });
   rangeOverlay = new Graphics();
+  private behaviorId: EnemyBehaviorId = 'classic';
 
   // shape
   r = 26;
@@ -85,7 +92,7 @@ export class Enemy {
       jitterRadians: this.jitterDegrees * Math.PI / 180,
     };
 
-    this.tree = this.buildTree();
+    this.tree = this.buildBehaviorTree(this.behaviorId);
     this.updateLabel('Idle');
   }
 
@@ -117,6 +124,34 @@ export class Enemy {
     this.label.text = `BT: ${name}`;
   }
 
+
+  private buildSimpleTree(): BTNode {
+    const inRanged = new Condition(() => {
+      const d = V.len(V.sub(this.bb.playerPos, this.bb.enemyPos));
+      const ok = d >= this.bb.distShootMin && d <= this.bb.distShootMax;
+      this.bb.inRange = ok;
+      return ok;
+    }, 'InRanged?');
+
+    const actRanged = new Action((dt) => this.actRanged(dt), 'RangedAttack');
+    const needReposition = new Condition(() => {
+      const d = V.len(V.sub(this.bb.playerPos, this.bb.enemyPos));
+      const rangeOk = d >= this.bb.distShootMin && d <= this.bb.distShootMax;
+      const los = this.estimateLOS();
+      this.bb.hasLOS = los;
+      return !rangeOk || !los;
+    }, 'NeedReposition?');
+
+    const actReposition = new Action((dt) => this.actReposition(dt), 'Reposition');
+    const actPatrol = new Action((dt) => this.actPatrol(dt), 'Patrol');
+
+    return new Selector([
+      new Sequence([inRanged, actRanged], 'Ranged→Attack'),
+      new Sequence([needReposition, actReposition], 'Repositioning'),
+      actPatrol
+    ], 'Root');
+  }
+
   // ---------- physics helpers ----------
   private accelTowards(dir: Vec, dt: number, boost = 1) {
     const a = { x: dir.x * this.accel * boost, y: dir.y * this.accel * boost };
@@ -132,7 +167,28 @@ export class Enemy {
   }
 
   // ---------- BT construction ----------
-  private buildTree(): BTNode {
+
+  private buildBehaviorTree(mode: EnemyBehaviorId): BTNode {
+    switch (mode) {
+      case 'simple':
+        return this.buildSimpleTree();
+      default:
+        return this.buildClassicTree();
+    }
+  }
+
+  setBehaviorVariant(id: EnemyBehaviorId) {
+    if (this.behaviorId === id) return;
+    this.behaviorId = id;
+    this.tree = this.buildBehaviorTree(id);
+    this.updateLabel('Idle');
+  }
+
+  getBehaviorVariant(): EnemyBehaviorId {
+    return this.behaviorId;
+  }
+
+  private buildClassicTree(): BTNode {
     // Conditions
     const isDanger = new Condition(() => {
       const res = detectIncomingDanger(this.bb);

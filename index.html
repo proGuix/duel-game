@@ -23,6 +23,19 @@
         font-family: inherit;
         appearance: none;
       }
+      #behaviorSelector button {
+        border: 1px solid rgba(255,255,255,0.25);
+        background: rgba(255,255,255,0.08);
+        color: #f5f5f5;
+        border-radius: 999px;
+        padding: 4px 10px;
+        font-size: 12px;
+        cursor: pointer;
+        transition: background 0.15s ease;
+      }
+      #behaviorSelector button:hover {
+        background: rgba(255,255,255,0.2);
+      }
       kbd { background: #11151a; border: 1px solid #2a2f37; border-bottom-color: #1d2228; border-radius: 6px; padding: 0 6px; font-weight: 700; }
       #centerMsg {
         position: fixed; left: 50%; top: 50%; transform: translate(-50%,-50%); color: #e8e8e8; text-align: center;
@@ -94,6 +107,7 @@
         <select id="btSelect" aria-label="Sélection du comportement de l'ennemi">
           <option value="" disabled>Chargement…</option>
         </select>
+        <button type="button" id="btEditorBtn">Éditer</button>
       </div>
     </div>
     <div id="centerMsg"></div>

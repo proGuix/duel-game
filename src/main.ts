@@ -1,14 +1,16 @@
-import { initBehaviorSelector } from '@ui/behavior-selector';
+import { initBehaviorSelector, refreshBehaviorSelector } from '@ui/behavior-selector';
+import { initBehaviorEditor } from '@ui/bt-editor';
 import { Application, Container, Graphics } from 'pixi.js';
 import { Input } from '@core/input';
 import { clamp } from '@core/math';
 import type { State, World } from '@types';
 import { Player } from '@game/player';
-import { Enemy, enemyBehaviorOptions, type EnemyBehaviorId } from '@game/enemy';
+import { Enemy } from '@game/enemy';
 import { Bullets } from '@game/bullets';
 import { ObjectsLayer } from '@game/objects';
 import { Renderer } from '@game/renderer';
 import { openDrawing, closeDrawingAndExport, isDrawingActive } from '@ui/drawing';
+import { ensureBehaviorRegistry, listBehaviorOptions } from '@ai/behavior-registry';
 
 async function bootstrap() {
   const app = new Application();
@@ -18,6 +20,7 @@ async function bootstrap() {
     antialias: true
   });
   document.getElementById('app')!.appendChild(app.canvas);
+  await ensureBehaviorRegistry();
 
   const world: World = { w: app.renderer.width, h: app.renderer.height };
   const input = new Input();
@@ -45,9 +48,33 @@ async function bootstrap() {
       .catch((err) => console.warn('BT debug overlay init failed', err));
   }
 
-  initBehaviorSelector(enemyBehaviorOptions, enemy.getBehaviorVariant(), (id) => {
-    enemy.setBehaviorVariant(id as EnemyBehaviorId);
+  const syncBehaviorSelector = () => {
+    const options = listBehaviorOptions();
+    const current = enemy.getBehaviorVariant();
+    const exists = options.some((opt) => opt.id === current);
+    const activeId = exists ? current : options[0]?.id ?? current;
+    if (!exists && activeId) {
+      enemy.setBehaviorVariant(activeId, true);
+      refreshBTDebugger?.(enemy.getBehaviorTree());
+    }
+    refreshBehaviorSelector(options, enemy.getBehaviorVariant());
+  };
+
+  initBehaviorSelector(listBehaviorOptions(), enemy.getBehaviorVariant(), (id) => {
+    enemy.setBehaviorVariant(id);
     refreshBTDebugger?.(enemy.getBehaviorTree());
+  });
+
+  initBehaviorEditor({
+    getCurrentBehaviorId: () => enemy.getBehaviorVariant(),
+    onBehaviorsChanged: () => {
+      syncBehaviorSelector();
+    },
+    onApplyBehavior: (id) => {
+      enemy.setBehaviorVariant(id, true);
+      refreshBTDebugger?.(enemy.getBehaviorTree());
+      syncBehaviorSelector();
+    }
   });
 
   // Bullets

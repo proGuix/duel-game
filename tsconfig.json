@@ -13,6 +13,7 @@
       "@ai/*": ["src/game/ai/*"]
     },
     "jsx": "react-jsx",
+    "resolveJsonModule": true,
     "skipLibCheck": true,
     "noEmit": true
   },

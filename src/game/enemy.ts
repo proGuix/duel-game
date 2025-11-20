@@ -2,20 +2,21 @@ import { Graphics, Text } from 'pixi.js';
 import type { World, Bullet } from '@types';
 import { Selector, Sequence, Condition, Action, type BTNode, type BTStatus, beginBTDebugFrame, endBTDebugFrame } from '@ai/bt';
 import { Blackboard, V, crownScore, detectIncomingDanger, leadAim } from '@ai/blackboard';
+import {
+  getBehaviorDescriptor,
+  listBehaviorOptions,
+  type ActionRef,
+  type BTNodeDef,
+  type ConditionRef
+} from '@ai/behavior-registry';
 
 type Vec = { x: number; y: number };
-
-export type EnemyBehaviorId = 'classic' | 'simple';
-export const enemyBehaviorOptions: { id: EnemyBehaviorId; label: string }[] = [
-  { id: 'classic', label: 'Classique' },
-  { id: 'simple', label: 'Simple' }
-];
 
 export class Enemy {
   gfx = new Graphics();
   label = new Text('', { fill: 0x4da3ff, fontSize: 12 });
   rangeOverlay = new Graphics();
-  private behaviorId: EnemyBehaviorId = 'classic';
+  private behaviorId: string = listBehaviorOptions()[0]?.id ?? 'classic';
 
   // shape
   r = 26;
@@ -124,32 +125,62 @@ export class Enemy {
     this.label.text = `BT: ${name}`;
   }
 
+  private instantiateNode(def: BTNodeDef): BTNode {
+    switch (def.type) {
+      case 'Selector':
+        return new Selector(def.children.map((child) => this.instantiateNode(child)), def.name);
+      case 'Sequence':
+        return new Sequence(def.children.map((child) => this.instantiateNode(child)), def.name);
+      case 'Condition':
+        return this.createCondition(def.ref as ConditionRef, def.label);
+      case 'Action':
+        return this.createAction(def.ref as ActionRef, def.label);
+      default:
+        throw new Error(`Type de nœud inconnu: ${(def as { type: string }).type}`);
+    }
+  }
 
-  private buildSimpleTree(): BTNode {
-    const inRanged = new Condition(() => {
-      const d = V.len(V.sub(this.bb.playerPos, this.bb.enemyPos));
-      const ok = d >= this.bb.distShootMin && d <= this.bb.distShootMax;
-      this.bb.inRange = ok;
-      return ok;
-    }, 'InRanged?');
+  private createCondition(ref: ConditionRef, label?: string): Condition {
+    switch (ref) {
+      case 'danger':
+        return new Condition(() => {
+          const res = detectIncomingDanger(this.bb);
+          this.bb.danger = res.danger ? { dir: res.dir } : null;
+          return res.danger;
+        }, label ?? 'Danger?');
+      case 'inRange':
+        return new Condition(() => {
+          const d = V.len(V.sub(this.bb.playerPos, this.bb.enemyPos));
+          const ok = d >= this.bb.distShootMin && d <= this.bb.distShootMax;
+          this.bb.inRange = ok;
+          return ok;
+        }, label ?? 'InRanged?');
+      case 'needReposition':
+        return new Condition(() => {
+          const d = V.len(V.sub(this.bb.playerPos, this.bb.enemyPos));
+          const rangeOk = d >= this.bb.distShootMin && d <= this.bb.distShootMax;
+          const losOk = this.estimateLOS();
+          this.bb.hasLOS = losOk;
+          return !rangeOk || !losOk;
+        }, label ?? 'NeedReposition?');
+      default:
+        throw new Error(`Condition inconnue: ${ref}`);
+    }
+  }
 
-    const actRanged = new Action((dt) => this.actRanged(dt), 'RangedAttack');
-    const needReposition = new Condition(() => {
-      const d = V.len(V.sub(this.bb.playerPos, this.bb.enemyPos));
-      const rangeOk = d >= this.bb.distShootMin && d <= this.bb.distShootMax;
-      const los = this.estimateLOS();
-      this.bb.hasLOS = los;
-      return !rangeOk || !los;
-    }, 'NeedReposition?');
-
-    const actReposition = new Action((dt) => this.actReposition(dt), 'Reposition');
-    const actPatrol = new Action((dt) => this.actPatrol(dt), 'Patrol');
-
-    return new Selector([
-      new Sequence([inRanged, actRanged], 'Ranged→Attack'),
-      new Sequence([needReposition, actReposition], 'Repositioning'),
-      actPatrol
-    ], 'Root');
+  private createAction(ref: ActionRef, label?: string): Action {
+    switch (ref) {
+      case 'evade':
+        return new Action((dt) => this.actEvade(dt), label ?? 'Evade');
+      case 'rangedAttack':
+        return new Action((dt) => this.actRanged(dt), label ?? 'RangedAttack');
+      case 'reposition':
+        return new Action((dt) => this.actReposition(dt), label ?? 'Reposition');
+      case 'patrol':
+        return new Action((dt) => this.actPatrol(dt), label ?? 'Patrol');
+      default:
+        throw new Error(`Action inconnue: ${ref}`);
+    }
   }
 
   // ---------- physics helpers ----------
@@ -168,65 +199,37 @@ export class Enemy {
 
   // ---------- BT construction ----------
 
-  private buildBehaviorTree(mode: EnemyBehaviorId): BTNode {
-    switch (mode) {
-      case 'simple':
-        return this.buildSimpleTree();
-      default:
-        return this.buildClassicTree();
+  private buildBehaviorTree(id: string): BTNode {
+    const descriptor = getBehaviorDescriptor(id);
+    if (!descriptor) {
+      const fallback = listBehaviorOptions()[0];
+      if (!fallback) throw new Error('Aucun comportement enregistré.');
+      this.behaviorId = fallback.id;
+      const fb = getBehaviorDescriptor(fallback.id);
+      if (!fb) throw new Error('Descripteur introuvable.');
+      return this.instantiateNode(fb.root);
     }
+    return this.instantiateNode(descriptor.root);
   }
 
-  setBehaviorVariant(id: EnemyBehaviorId) {
-    if (this.behaviorId === id) return;
+  setBehaviorVariant(id: string, force = false) {
+    const descriptor = getBehaviorDescriptor(id);
+    if (!descriptor) {
+      console.warn(`Comportement BT inconnu: ${id}`);
+      return;
+    }
+    const changed = this.behaviorId !== id;
     this.behaviorId = id;
-    this.tree = this.buildBehaviorTree(id);
+    if (!changed && !force) return;
+    this.tree = this.instantiateNode(descriptor.root);
     this.updateLabel('Idle');
   }
 
-  getBehaviorVariant(): EnemyBehaviorId {
+  getBehaviorVariant(): string {
     return this.behaviorId;
   }
 
-  private buildClassicTree(): BTNode {
-    // Conditions
-    const isDanger = new Condition(() => {
-      const res = detectIncomingDanger(this.bb);
-      this.bb.danger = res.danger ? { dir: res.dir } : null;
-      return res.danger;
-    }, 'Danger?');
 
-
-    const inRanged = new Condition(() => {
-      const d = V.len(V.sub(this.bb.playerPos, this.bb.enemyPos));
-      const ok = d >= this.bb.distShootMin && d <= this.bb.distShootMax;
-      this.bb.inRange = ok;
-      return ok;
-    }, 'InRanged?');
-
-    const needReposition = new Condition(() => {
-      // simple: si pas en range ou pas LOS, on se repositionne
-      const d = V.len(V.sub(this.bb.playerPos, this.bb.enemyPos));
-      const rangeOk = d >= this.bb.distShootMin && d <= this.bb.distShootMax;
-      const losOk = this.estimateLOS(); // placeholder: true (ou raycast si tu as des obstacles)
-      this.bb.hasLOS = losOk;
-      return !rangeOk || !losOk;
-    }, 'NeedReposition?');
-
-    // Actions
-    const actEvade = new Action((dt) => this.actEvade(dt), 'Evade');
-    const actRanged = new Action((dt) => this.actRanged(dt), 'RangedAttack');
-    const actReposition = new Action((dt) => this.actReposition(dt), 'Reposition');
-    const actPatrol = new Action((dt) => this.actPatrol(dt), 'Patrol');
-
-    // Tree
-    return new Selector([
-      new Sequence([isDanger, actEvade], 'Danger→Evade'),
-      new Sequence([inRanged, actRanged], 'Ranged→Attack'),
-      new Sequence([needReposition, actReposition], 'Repositioning'),
-      actPatrol
-    ], 'Root');
-  }
 
   // ---------- Actions impl ----------
  private actEvade(dt: number): BTStatus {

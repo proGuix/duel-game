@@ -1,3 +1,5 @@
+// @ts-nocheck
+/// <reference types="node" />
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, URL } from 'node:url';
@@ -31,6 +33,7 @@ async function readRequestBody(req: import('node:http').IncomingMessage): Promis
 }
 
 export default defineConfig({
+  root: projectRoot,
   plugins: [
     {
       name: 'bt-behavior-api',
@@ -77,6 +80,14 @@ export default defineConfig({
       }
     }
   ],
+  build: {
+    rollupOptions: {
+      input: {
+        main: path.resolve(projectRoot, 'index.html'),
+        editor: path.resolve(projectRoot, 'editor.html')
+      }
+    }
+  },
   resolve: {
     alias: {
       '@core': fileURLToPath(new URL('./src/core', import.meta.url)),

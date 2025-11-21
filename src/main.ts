@@ -1,5 +1,4 @@
 import { initBehaviorSelector, refreshBehaviorSelector } from '@ui/behavior-selector';
-import { initBehaviorEditor } from '@ui/bt-editor';
 import { Application, Container, Graphics } from 'pixi.js';
 import { Input } from '@core/input';
 import { clamp } from '@core/math';
@@ -65,16 +64,9 @@ async function bootstrap() {
     refreshBTDebugger?.(enemy.getBehaviorTree());
   });
 
-  initBehaviorEditor({
-    getCurrentBehaviorId: () => enemy.getBehaviorVariant(),
-    onBehaviorsChanged: () => {
-      syncBehaviorSelector();
-    },
-    onApplyBehavior: (id) => {
-      enemy.setBehaviorVariant(id, true);
-      refreshBTDebugger?.(enemy.getBehaviorTree());
-      syncBehaviorSelector();
-    }
+  const editorBtn = document.getElementById('btEditorBtn') as HTMLButtonElement | null;
+  editorBtn?.addEventListener('click', () => {
+    window.open('/editor.html', '_blank');
   });
 
   // Bullets
@@ -214,6 +206,9 @@ async function bootstrap() {
 }
 
 bootstrap();
+
+
+
 
 
 

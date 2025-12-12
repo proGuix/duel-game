@@ -47,10 +47,14 @@ const paletteItems: Array<{ label: string; node: BTNodeDef }> = [
   { label: 'Danger?', node: { type: 'Condition', ref: 'danger', label: 'Danger?' } },
   { label: 'InRanged?', node: { type: 'Condition', ref: 'inRange', label: 'InRanged?' } },
   { label: 'NeedReposition?', node: { type: 'Condition', ref: 'needReposition', label: 'NeedReposition?' } },
+  { label: 'HasLOS?', node: { type: 'Condition', ref: 'hasLOS', label: 'HasLOS?' } },
+  { label: 'TooClose?', node: { type: 'Condition', ref: 'tooClose', label: 'TooClose?' } },
   { label: 'Evade', node: { type: 'Action', ref: 'evade', label: 'Evade' } },
   { label: 'RangedAttack', node: { type: 'Action', ref: 'rangedAttack', label: 'RangedAttack' } },
   { label: 'Reposition', node: { type: 'Action', ref: 'reposition', label: 'Reposition' } },
-  { label: 'Patrol', node: { type: 'Action', ref: 'patrol', label: 'Patrol' } }
+  { label: 'Patrol', node: { type: 'Action', ref: 'patrol', label: 'Patrol' } },
+  { label: 'Strafe', node: { type: 'Action', ref: 'strafe', label: 'Strafe' } },
+  { label: 'Charge', node: { type: 'Action', ref: 'charge', label: 'Charge' } }
 ];
 
 async function bootstrap() {

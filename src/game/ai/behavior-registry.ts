@@ -2,8 +2,8 @@ import fallbackFile from '../../../enemy-behaviors.json';
 
 export type BehaviorOption = { id: string; label: string };
 
-export type ConditionRef = 'danger' | 'inRange' | 'needReposition';
-export type ActionRef = 'evade' | 'rangedAttack' | 'reposition' | 'patrol';
+export type ConditionRef = 'danger' | 'inRange' | 'needReposition' | 'hasLOS' | 'tooClose';
+export type ActionRef = 'evade' | 'rangedAttack' | 'reposition' | 'patrol' | 'strafe' | 'charge';
 
 export type CompositeType = 'Selector' | 'Sequence';
 
@@ -29,7 +29,7 @@ export const conditionLibrary: Array<{ ref: ConditionRef; label: string; descrip
   {
     ref: 'danger',
     label: 'Danger?',
-    description: 'Retourne succès lorsqu’un projectile va toucher l’ennemi (déclenche Evade).'
+    description: "Retourne succes lorsqu'un projectile va toucher l'ennemi (declenche Evade)."
   },
   {
     ref: 'inRange',
@@ -39,7 +39,17 @@ export const conditionLibrary: Array<{ ref: ConditionRef; label: string; descrip
   {
     ref: 'needReposition',
     label: 'NeedReposition?',
-    description: 'Échec du range/LOS ⇒ l’ennemi doit se déplacer pour retrouver un angle.'
+    description: "Echec du range/LOS => l'ennemi doit se deplacer pour retrouver un angle."
+  },
+  {
+    ref: 'hasLOS',
+    label: 'HasLOS?',
+    description: 'Succes lorsque estimateLOS() confirme une ligne de vue degagee.'
+  },
+  {
+    ref: 'tooClose',
+    label: 'TooClose?',
+    description: 'Succes si la cible est plus proche que distShootMin.'
   }
 ];
 
@@ -47,7 +57,7 @@ export const actionLibrary: Array<{ ref: ActionRef; label: string; description: 
   {
     ref: 'evade',
     label: 'Evade',
-    description: 'Déclenche un dash latéral lorsqu’un danger est détecté.'
+    description: "Declenche un dash lateral lorsqu'un danger est detecte."
   },
   {
     ref: 'rangedAttack',
@@ -57,12 +67,22 @@ export const actionLibrary: Array<{ ref: ActionRef; label: string; description: 
   {
     ref: 'reposition',
     label: 'Reposition',
-    description: 'Cherche la distance idéale avec un strafe léger.'
+    description: 'Cherche la distance ideale avec un strafe leger.'
   },
   {
     ref: 'patrol',
     label: 'Patrol',
-    description: 'Mouvement aléatoire lent utilisé comme fallback.'
+    description: 'Mouvement aleatoire lent utilise comme fallback.'
+  },
+  {
+    ref: 'strafe',
+    label: 'Strafe',
+    description: 'Tourne autour de la cible en priorisant un mouvement lateral.'
+  },
+  {
+    ref: 'charge',
+    label: 'Charge',
+    description: 'Fonce directement vers la cible avec un leger boost.'
   }
 ];
 

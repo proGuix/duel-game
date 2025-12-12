@@ -26,7 +26,19 @@ const factories: Record<ConditionRef, ConditionFactory> = {
       const losOk = ctx.host.estimateLOS();
       ctx.bb.hasLOS = losOk;
       return !rangeOk || !losOk;
-    }, label ?? 'NeedReposition?')
+    }, label ?? 'NeedReposition?'),
+  hasLOS: (ctx, label) =>
+    new Condition(() => {
+      const losOk = ctx.host.estimateLOS();
+      ctx.bb.hasLOS = losOk;
+      return losOk;
+    }, label ?? 'HasLOS?'),
+  tooClose: (ctx, label) =>
+    new Condition(() => {
+      const d = V.len(V.sub(ctx.bb.playerPos, ctx.bb.enemyPos));
+      const close = d < ctx.bb.distShootMin;
+      return close;
+    }, label ?? 'TooClose?')
 };
 
 export function createConditionNode(ref: ConditionRef, ctx: BehaviorContext, label?: string): Condition {

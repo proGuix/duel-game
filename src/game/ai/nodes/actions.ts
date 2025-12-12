@@ -13,7 +13,11 @@ const factories: Record<ActionRef, ActionFactory> = {
   reposition: (ctx, label) =>
     new Action((dt) => actReposition(ctx, dt), label ?? 'Reposition'),
   patrol: (ctx, label) =>
-    new Action((dt) => actPatrol(ctx, dt), label ?? 'Patrol')
+    new Action((dt) => actPatrol(ctx, dt), label ?? 'Patrol'),
+  strafe: (ctx, label) =>
+    new Action((dt) => actStrafe(ctx, dt), label ?? 'Strafe'),
+  charge: (ctx, label) =>
+    new Action((dt) => actCharge(ctx, dt), label ?? 'Charge')
 };
 
 export function createActionNode(ref: ActionRef, ctx: BehaviorContext, label?: string): Action {
@@ -93,5 +97,27 @@ function actPatrol(ctx: BehaviorContext, dt: number): BTStatus {
   const dx = (Math.random() - 0.5) * 2;
   const dy = (Math.random() - 0.5) * 2;
   ctx.bb.intentMove = V.norm({ x: dx, y: dy });
+  return 'Running';
+}
+
+function actStrafe(ctx: BehaviorContext, dt: number): BTStatus {
+  ctx.bb.runningNodeName = 'Strafe';
+  const to = V.sub(ctx.bb.playerPos, ctx.bb.enemyPos);
+  const dirTo = V.norm(to);
+  // rotation constante (gauche) + leger biais pour garder distance
+  const lateral = V.perp(dirTo);
+  const radialBias = ctx.bb.inRange ? 0 : ctx.bb.distShootMin - V.len(to);
+  let move = V.add(lateral, V.mul(dirTo, radialBias > 0 ? -0.2 : 0.2));
+  move = V.norm(move);
+  ctx.bb.intentMove = move;
+  return 'Running';
+}
+
+function actCharge(ctx: BehaviorContext, dt: number): BTStatus {
+  ctx.bb.runningNodeName = 'Charge';
+  const to = V.sub(ctx.bb.playerPos, ctx.bb.enemyPos);
+  const dirTo = V.norm(to);
+  ctx.bb.intentMove = dirTo;
+  ctx.bb.intentDashBoost = Math.max(ctx.bb.intentDashBoost ?? 1, 1.2);
   return 'Running';
 }

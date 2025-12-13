@@ -681,8 +681,10 @@ function findDropTarget(px: number, py: number): DropTarget | null {
   if (rootChildrenRects.length === 0) {
     return { parentPath: [], insertIndex: 0 };
   }
-  const rootTop = Math.min(...rootChildrenRects.map((rect) => rect.y));
-  const rootBottom = Math.max(...rootChildrenRects.map((rect) => rect.y + rect.height));
+  const firstRoot = rootChildrenRects[0];
+  const lastRoot = rootChildrenRects[rootChildrenRects.length - 1];
+  const rootTop = firstRoot.y + firstRoot.height / 2;
+  const rootBottom = lastRoot.y + lastRoot.height / 2;
   if (py < rootTop) return { parentPath: [], insertIndex: 0 };
   if (py > rootBottom) return { parentPath: [], insertIndex: rootChildrenRects.length };
   if (nodeRects.length === 0) return null;
@@ -732,8 +734,8 @@ function findCompositeInsert(px: number, py: number): DropTarget | null {
     const last = children[children.length - 1];
     const firstCenter = first.y + first.height / 2;
     const lastCenter = last.y + last.height / 2;
-    const topBoundary = rect.y;
-    const bottomBoundary = last.y + last.height + nodeSpacing;
+    const topBoundary = rect.y - nodeSpacing;
+    const bottomBoundary = Math.max(rect.y + rect.height, last.y + last.height + nodeSpacing);
     if (py < firstCenter && py >= topBoundary) {
       return { parentPath: rect.path, insertIndex: 0 };
     }
@@ -757,5 +759,3 @@ function updateDropPreview(target: DropTarget | null) {
 }
 
 bootstrap().catch(console.error);
-
-

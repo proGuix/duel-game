@@ -34,3 +34,9 @@ Ouvrez l’URL locale affichée par Vite (ex. `http://localhost:5173`).
 ```bash
 npm run build
 ```
+
+## Prévisualiser le build de production
+
+```bash
+npm run preview
+```

@@ -28,6 +28,17 @@ let dragNode: { path: number[]; node: BTNodeDef } | null = null;
 let ghostContainer: Container | null = null;
 let treeMask: Graphics;
 let ghostAnchor = { dx: 0, dy: 0 };
+type NodeRect = {
+  path: number[];
+  parentPath: number[];
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  isComposite: boolean;
+};
+let nodeRects: NodeRect[] = [];
+let dropPreview: DropTarget | null = null;
 
 let scrollOffset = 0;
 let contentHeight = 0;
@@ -240,6 +251,7 @@ function renderUI() {
 
 function redrawTree() {
   treeLayer.removeChildren();
+  nodeRects = [];
   const w = app.renderer.width;
   const h = app.renderer.height;
 
@@ -285,12 +297,8 @@ function layoutNode(
   const cardWidth = Math.min(nodeWidth, maxWidth - indent);
 
   if (dragNode && arraysEqual(dragNode.path, path)) {
-    const placeholder = new Graphics();
-    placeholder.roundRect(Math.round(x + indent), Math.round(y), cardWidth, nodeHeight, 10);
-    placeholder.fill({ color: 0x4da3ff, alpha: 0.12 });
-    placeholder.stroke({ width: 1, color: 0x4da3ff, alpha: 0.4 });
-    container.addChild(placeholder);
-    return y + nodeHeight + nodeSpacing;
+    // Skip drawing and do not reserve space so the tree contracts
+    return y;
   }
 
   const bg = new Graphics();
@@ -334,12 +342,36 @@ function layoutNode(
   );
 
   container.addChild(bg, badge, title);
+  nodeRects.push({
+    path,
+    parentPath: path.length > 0 ? path.slice(0, -1) : [],
+    x: treeX + x + indent,
+    y: treeY + y,
+    width: cardWidth,
+    height: nodeHeight,
+    isComposite: isComposite(node)
+  });
 
   let cursorY = y + nodeHeight + nodeSpacing;
   if (isComposite(node)) {
+    const childIndent = indentStep * (path.length + 1);
+    const childWidth = Math.min(nodeWidth, maxWidth - childIndent);
+    const placeholderX = x + childIndent;
+    const childPathBase = [...path];
+    const showPlaceholder = (insertIndex: number) =>
+      dropPreview &&
+      arraysEqual(dropPreview.parentPath, path) &&
+      dropPreview.insertIndex === insertIndex;
+
     node.children.forEach((child, index) => {
-      cursorY = layoutNode(child, [...path, index], x, cursorY, maxWidth, container, treeX, treeY);
+      if (showPlaceholder(index)) {
+        cursorY = renderInsertPlaceholder(container, placeholderX, cursorY, childWidth);
+      }
+      cursorY = layoutNode(child, [...childPathBase, index], x, cursorY, maxWidth, container, treeX, treeY);
     });
+    if (showPlaceholder(node.children.length)) {
+      cursorY = renderInsertPlaceholder(container, placeholderX, cursorY, childWidth);
+    }
   }
 
   // delete cross
@@ -363,12 +395,28 @@ function layoutNode(
 
 function moveNode(from: number[], toParent: number[], insertIndex: number) {
   if (isAncestorPath(from, toParent)) return;
-  const node = detachNode(from);
   const parent = getNodeAtPath(toParent);
   if (!isComposite(parent)) return;
-  parent.children.splice(insertIndex, 0, node);
-  selectedPath = toParent;
+  const movingIndex = from[from.length - 1];
+  const sameParent = arraysEqual(from.slice(0, -1), toParent);
+  let targetIndex = insertIndex;
+  if (sameParent && insertIndex > movingIndex) {
+    targetIndex -= 1;
+  }
+  const node = detachNode(from);
+  parent.children.splice(targetIndex, 0, node);
+  selectedPath = [...toParent, targetIndex];
   dragNode = null;
+  dropPreview = null;
+  redrawTree();
+}
+
+function insertNodeAt(parentPath: number[], insertIndex: number, node: BTNodeDef) {
+  const parent = getNodeAtPath(parentPath);
+  if (!isComposite(parent)) return;
+  parent.children.splice(insertIndex, 0, node);
+  selectedPath = [...parentPath, insertIndex];
+  dropPreview = null;
   redrawTree();
 }
 
@@ -380,27 +428,53 @@ function onDragMove(e: PointerEvent) {
     const gy = y - ghostAnchor.dy;
     ghostContainer.position.set(gx, gy);
   }
+  let target = findDropTarget(x, y);
+  if (dragNode && target && isAncestorPath(dragNode.path, target.parentPath)) {
+    target = null;
+  }
+  updateDropPreview(target);
 }
 
-function onDragEnd() {
+function onDragEnd(e: PointerEvent) {
+  const current = dragNode;
+  let performedDrop = false;
+  if (current) {
+    const { x, y } = toCanvasPoint(e.clientX, e.clientY);
+    let target = findDropTarget(x, y);
+    if (target && isAncestorPath(current.path, target.parentPath)) {
+      target = null;
+    }
+    if (target) {
+      moveNode(current.path, target.parentPath, target.insertIndex);
+      performedDrop = true;
+    }
+  }
   dragNode = null;
+  dropPreview = null;
   app.canvas.style.cursor = 'default';
   window.removeEventListener('pointermove', onDragMove);
   window.removeEventListener('pointerup', onDragEnd);
   hideGhost();
-  redrawTree();
+  if (!performedDrop) redrawTree();
 }
 
 function onPaletteDragEnd(e: PointerEvent) {
+  let performedDrop = false;
   if (paletteDragNode) {
-    const { x: px, y: py } = toCanvasPoint(e.clientX, e.clientY);
+    const { x, y } = toCanvasPoint(e.clientX, e.clientY);
+    const target = findDropTarget(x, y);
+    if (target) {
+      insertNodeAt(target.parentPath, target.insertIndex, cloneNode(paletteDragNode));
+      performedDrop = true;
+    }
   }
   paletteDragNode = null;
+  dropPreview = null;
   hideGhost();
   app.canvas.style.cursor = 'default';
   window.removeEventListener('pointermove', onDragMove);
   window.removeEventListener('pointerup', onPaletteDragEnd);
-  redrawTree();
+  if (!performedDrop) redrawTree();
 }
 
 function makeButton(
@@ -588,10 +662,100 @@ function isInsideTree(x: number, y: number) {
   return x >= treeX && x <= treeX + treeW && y >= treeY && y <= treeY + treeH;
 }
 
+function renderInsertPlaceholder(container: Container, px: number, py: number, width: number) {
+  const placeholder = new Graphics();
+  placeholder.roundRect(Math.round(px), Math.round(py), width, nodeHeight, 10);
+  placeholder.fill({ color: 0x3dbb57, alpha: 0.18 });
+  placeholder.stroke({ width: 1, color: 0x3dbb57, alpha: 0.5 });
+  container.addChild(placeholder);
+  return py + nodeHeight + nodeSpacing;
+}
+
+type DropTarget = { parentPath: number[]; insertIndex: number };
+
+function findDropTarget(px: number, py: number): DropTarget | null {
+  if (!isInsideTree(px, py)) return null;
+  const compositeInsert = findCompositeInsert(px, py);
+  if (compositeInsert) return compositeInsert;
+  const rootChildrenRects = nodeRects.filter((rect) => rect.parentPath.length === 0);
+  if (rootChildrenRects.length === 0) {
+    return { parentPath: [], insertIndex: 0 };
+  }
+  const rootTop = Math.min(...rootChildrenRects.map((rect) => rect.y));
+  const rootBottom = Math.max(...rootChildrenRects.map((rect) => rect.y + rect.height));
+  if (py < rootTop) return { parentPath: [], insertIndex: 0 };
+  if (py > rootBottom) return { parentPath: [], insertIndex: rootChildrenRects.length };
+  if (nodeRects.length === 0) return null;
+  let nearest = nodeRects[0];
+  let minDist = Math.abs(py - (nearest.y + nearest.height / 2));
+  for (const rect of nodeRects) {
+    const center = rect.y + rect.height / 2;
+    const dist = Math.abs(py - center);
+    if (dist < minDist) {
+      nearest = rect;
+      minDist = dist;
+    }
+  }
+  if (nearest.path.length === 0) {
+    const root = getNodeAtPath([]);
+    if (!isComposite(root)) return null;
+    const insertIndex = py < nearest.y + nearest.height / 2 ? 0 : root.children.length;
+    return { parentPath: [], insertIndex };
+  }
+  const parentPath = nearest.parentPath;
+  const parent = getNodeAtPath(parentPath);
+  if (!isComposite(parent)) return null;
+  const siblingIndex = nearest.path[nearest.path.length - 1];
+  const insertIndex = py < nearest.y + nearest.height / 2 ? siblingIndex : siblingIndex + 1;
+  return { parentPath, insertIndex };
+}
+
+function getChildrenRects(parentPath: number[]): NodeRect[] {
+  return nodeRects
+    .filter((rect) => arraysEqual(rect.parentPath, parentPath))
+    .sort((a, b) => a.y - b.y);
+}
+
+function findCompositeInsert(px: number, py: number): DropTarget | null {
+  for (const rect of nodeRects) {
+    if (!rect.isComposite) continue;
+    const parent = getNodeAtPath(rect.path);
+    if (!isComposite(parent)) continue;
+    const children = getChildrenRects(rect.path);
+    if (children.length === 0) {
+      if (py >= rect.y && py <= rect.y + rect.height) {
+        return { parentPath: rect.path, insertIndex: 0 };
+      }
+      continue;
+    }
+    const first = children[0];
+    const last = children[children.length - 1];
+    const firstCenter = first.y + first.height / 2;
+    const lastCenter = last.y + last.height / 2;
+    const topBoundary = rect.y;
+    const bottomBoundary = last.y + last.height + nodeSpacing;
+    if (py < firstCenter && py >= topBoundary) {
+      return { parentPath: rect.path, insertIndex: 0 };
+    }
+    if (py > lastCenter && py <= bottomBoundary) {
+      return { parentPath: rect.path, insertIndex: parent.children.length };
+    }
+  }
+  return null;
+}
+
+function sameDropTarget(a: DropTarget | null, b: DropTarget | null) {
+  if (!a && !b) return true;
+  if (!a || !b) return false;
+  return a.insertIndex === b.insertIndex && arraysEqual(a.parentPath, b.parentPath);
+}
+
+function updateDropPreview(target: DropTarget | null) {
+  if (sameDropTarget(dropPreview, target)) return;
+  dropPreview = target;
+  redrawTree();
+}
+
 bootstrap().catch(console.error);
-
-
-
-
 
 

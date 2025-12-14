@@ -677,6 +677,10 @@ function findDropTarget(px: number, py: number): DropTarget | null {
   if (!isInsideTree(px, py)) return null;
   if (nodeRects.length === 0) return { parentPath: [], insertIndex: 0 };
   const rects = [...nodeRects].sort((a, b) => a.y - b.y);
+  const rectMap = new Map<string, NodeRect>();
+  for (const rect of nodeRects) {
+    rectMap.set(pathKey(rect.path), rect);
+  }
   if (py < rects[0].y) {
     return targetBeforeRect(rects[0]);
   }
@@ -692,9 +696,7 @@ function findDropTarget(px: number, py: number): DropTarget | null {
       return targetBeforeRect(next);
     }
   }
-  const root = getNodeAtPath([]);
-  if (!isComposite(root)) return { parentPath: [], insertIndex: 0 };
-  return { parentPath: [], insertIndex: root.children.length };
+  return resolveTailDrop(px, rects, rectMap);
 }
 
 function resolveInsideRect(rect: NodeRect, py: number): DropTarget {
@@ -728,6 +730,37 @@ function targetAfterRect(rect: NodeRect): DropTarget {
   const parentPath = rect.parentPath;
   const index = rect.path[parentPath.length] + 1;
   return { parentPath, insertIndex: index };
+}
+
+function resolveTailDrop(px: number, rects: NodeRect[], rectMap: Map<string, NodeRect>): DropTarget {
+  const lastRect = rects[rects.length - 1];
+  const chain: NodeRect[] = [];
+  let current: NodeRect | undefined = lastRect;
+  while (current) {
+    chain.push(current);
+    if (current.path.length === 0) break;
+    const parentRect = rectMap.get(pathKey(current.parentPath));
+    if (!parentRect) break;
+    const parentNode = getNodeAtPath(parentRect.path);
+    if (!isComposite(parentNode)) break;
+    const childIndex = current.path[parentRect.path.length];
+    if (childIndex !== parentNode.children.length - 1) break;
+    current = parentRect;
+  }
+  const ordered = [...chain].sort((a, b) => a.x - b.x);
+  let chosen = ordered[0];
+  for (const rect of ordered) {
+    if (px >= rect.x - indentStep * 0.5) {
+      chosen = rect;
+    } else {
+      break;
+    }
+  }
+  return targetAfterRect(chosen);
+}
+
+function pathKey(path: number[]) {
+  return path.join(',');
 }
 
 function sameDropTarget(a: DropTarget | null, b: DropTarget | null) {

@@ -675,75 +675,59 @@ type DropTarget = { parentPath: number[]; insertIndex: number };
 
 function findDropTarget(px: number, py: number): DropTarget | null {
   if (!isInsideTree(px, py)) return null;
-  const compositeInsert = findCompositeInsert(px, py);
-  if (compositeInsert) return compositeInsert;
-  const rootChildrenRects = nodeRects.filter((rect) => rect.parentPath.length === 0);
-  if (rootChildrenRects.length === 0) {
+  if (nodeRects.length === 0) return { parentPath: [], insertIndex: 0 };
+  const rects = [...nodeRects].sort((a, b) => a.y - b.y);
+  if (py < rects[0].y) {
+    return targetBeforeRect(rects[0]);
+  }
+  for (let i = 0; i < rects.length; i++) {
+    const rect = rects[i];
+    const top = rect.y;
+    const bottom = rect.y + rect.height;
+    if (py >= top && py <= bottom) {
+      return resolveInsideRect(rect, py);
+    }
+    const next = rects[i + 1];
+    if (next && py > bottom && py < next.y) {
+      return targetBeforeRect(next);
+    }
+  }
+  const root = getNodeAtPath([]);
+  if (!isComposite(root)) return { parentPath: [], insertIndex: 0 };
+  return { parentPath: [], insertIndex: root.children.length };
+}
+
+function resolveInsideRect(rect: NodeRect, py: number): DropTarget {
+  const mid = rect.y + rect.height / 2;
+  if (py < mid) {
+    return targetBeforeRect(rect);
+  }
+  if (rect.isComposite) {
+    return { parentPath: rect.path, insertIndex: 0 };
+  }
+  return targetAfterRect(rect);
+}
+
+function targetBeforeRect(rect: NodeRect): DropTarget {
+  if (rect.path.length === 0) {
     return { parentPath: [], insertIndex: 0 };
   }
-  const firstRoot = rootChildrenRects[0];
-  const lastRoot = rootChildrenRects[rootChildrenRects.length - 1];
-  const rootTop = firstRoot.y + firstRoot.height / 2;
-  const rootBottom = lastRoot.y + lastRoot.height / 2;
-  if (py < rootTop) return { parentPath: [], insertIndex: 0 };
-  if (py > rootBottom) return { parentPath: [], insertIndex: rootChildrenRects.length };
-  if (nodeRects.length === 0) return null;
-  let nearest = nodeRects[0];
-  let minDist = Math.abs(py - (nearest.y + nearest.height / 2));
-  for (const rect of nodeRects) {
-    const center = rect.y + rect.height / 2;
-    const dist = Math.abs(py - center);
-    if (dist < minDist) {
-      nearest = rect;
-      minDist = dist;
-    }
-  }
-  if (nearest.path.length === 0) {
+  const parentPath = rect.parentPath;
+  const index = rect.path[parentPath.length];
+  return { parentPath, insertIndex: index };
+}
+
+function targetAfterRect(rect: NodeRect): DropTarget {
+  if (rect.path.length === 0) {
     const root = getNodeAtPath([]);
-    if (!isComposite(root)) return null;
-    const insertIndex = py < nearest.y + nearest.height / 2 ? 0 : root.children.length;
-    return { parentPath: [], insertIndex };
+    if (!isComposite(root)) {
+      return { parentPath: [], insertIndex: 0 };
+    }
+    return { parentPath: [], insertIndex: root.children.length };
   }
-  const parentPath = nearest.parentPath;
-  const parent = getNodeAtPath(parentPath);
-  if (!isComposite(parent)) return null;
-  const siblingIndex = nearest.path[nearest.path.length - 1];
-  const insertIndex = py < nearest.y + nearest.height / 2 ? siblingIndex : siblingIndex + 1;
-  return { parentPath, insertIndex };
-}
-
-function getChildrenRects(parentPath: number[]): NodeRect[] {
-  return nodeRects
-    .filter((rect) => arraysEqual(rect.parentPath, parentPath))
-    .sort((a, b) => a.y - b.y);
-}
-
-function findCompositeInsert(px: number, py: number): DropTarget | null {
-  for (const rect of nodeRects) {
-    if (!rect.isComposite) continue;
-    const parent = getNodeAtPath(rect.path);
-    if (!isComposite(parent)) continue;
-    const children = getChildrenRects(rect.path);
-    if (children.length === 0) {
-      if (py >= rect.y && py <= rect.y + rect.height) {
-        return { parentPath: rect.path, insertIndex: 0 };
-      }
-      continue;
-    }
-    const first = children[0];
-    const last = children[children.length - 1];
-    const firstCenter = first.y + first.height / 2;
-    const lastCenter = last.y + last.height / 2;
-    const topBoundary = rect.y - nodeSpacing;
-    const bottomBoundary = Math.max(rect.y + rect.height, last.y + last.height + nodeSpacing);
-    if (py < firstCenter && py >= topBoundary) {
-      return { parentPath: rect.path, insertIndex: 0 };
-    }
-    if (py > lastCenter && py <= bottomBoundary) {
-      return { parentPath: rect.path, insertIndex: parent.children.length };
-    }
-  }
-  return null;
+  const parentPath = rect.parentPath;
+  const index = rect.path[parentPath.length] + 1;
+  return { parentPath, insertIndex: index };
 }
 
 function sameDropTarget(a: DropTarget | null, b: DropTarget | null) {

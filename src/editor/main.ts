@@ -675,67 +675,70 @@ type DropTarget = { parentPath: number[]; insertIndex: number };
 
 function findDropTarget(px: number, py: number): DropTarget | null {
   if (!isInsideTree(px, py)) return null;
-  if (nodeRects.length === 0) return { parentPath: [], insertIndex: 0 };
+  if (nodeRects.length === 0 || nodeRects.length === 1) return { parentPath: [], insertIndex: 0 };
   const rects = [...nodeRects].sort((a, b) => a.y - b.y);
   const rectMap = new Map<string, NodeRect>();
   for (const rect of nodeRects) {
     rectMap.set(pathKey(rect.path), rect);
   }
   if (py < rects[0].y) {
-    return targetBeforeRect(rects[0]);
+    return { parentPath: [], insertIndex: 0 };
   }
   for (let i = 0; i < rects.length; i++) {
     const rect = rects[i];
     const top = rect.y;
     const bottom = rect.y + rect.height;
     if (py >= top && py <= bottom) {
+      if(i == 0) {
+        return { parentPath: [], insertIndex: 0 };
+      }
       return resolveInsideRect(rect, py);
     }
     const next = rects[i + 1];
     if (next && py > bottom && py < next.y) {
-      return targetBeforeRect(next);
+      if (next.x < rect.x) {
+        const lateral = resolveTailFromRect(px, rect, rectMap);
+        if (lateral) return lateral;
+      }
+      return targetSiblingBefore(next);
     }
   }
   return resolveTailDrop(px, rects, rectMap);
 }
 
-function resolveInsideRect(rect: NodeRect, py: number): DropTarget {
+function resolveInsideRect(rect: NodeRect, py: number): DropTarget | null {
   const mid = rect.y + rect.height / 2;
   if (py < mid) {
-    return targetBeforeRect(rect);
+    return targetSiblingBefore(rect);
   }
   if (rect.isComposite) {
     return { parentPath: rect.path, insertIndex: 0 };
   }
-  return targetAfterRect(rect);
+  return targetSiblingAfter(rect);
 }
 
-function targetBeforeRect(rect: NodeRect): DropTarget {
-  if (rect.path.length === 0) {
-    return { parentPath: [], insertIndex: 0 };
-  }
+function targetSiblingBefore(rect: NodeRect): DropTarget | null {
+  if (rect.path.length === 0) return null;
   const parentPath = rect.parentPath;
   const index = rect.path[parentPath.length];
   return { parentPath, insertIndex: index };
 }
 
-function targetAfterRect(rect: NodeRect): DropTarget {
-  if (rect.path.length === 0) {
-    const root = getNodeAtPath([]);
-    if (!isComposite(root)) {
-      return { parentPath: [], insertIndex: 0 };
-    }
-    return { parentPath: [], insertIndex: root.children.length };
-  }
+function targetSiblingAfter(rect: NodeRect): DropTarget | null {
+  if (rect.path.length === 0) return null;
   const parentPath = rect.parentPath;
   const index = rect.path[parentPath.length] + 1;
   return { parentPath, insertIndex: index };
 }
 
-function resolveTailDrop(px: number, rects: NodeRect[], rectMap: Map<string, NodeRect>): DropTarget {
+function resolveTailDrop(px: number, rects: NodeRect[], rectMap: Map<string, NodeRect>): DropTarget | null {
   const lastRect = rects[rects.length - 1];
+  return resolveTailFromRect(px, lastRect, rectMap);
+}
+
+function resolveTailFromRect(px: number, startRect: NodeRect, rectMap: Map<string, NodeRect>): DropTarget | null {
   const chain: NodeRect[] = [];
-  let current: NodeRect | undefined = lastRect;
+  let current: NodeRect | undefined = startRect;
   while (current) {
     chain.push(current);
     if (current.path.length === 0) break;
@@ -756,7 +759,7 @@ function resolveTailDrop(px: number, rects: NodeRect[], rectMap: Map<string, Nod
       break;
     }
   }
-  return targetAfterRect(chosen);
+  return targetSiblingAfter(chosen);
 }
 
 function pathKey(path: number[]) {

@@ -737,6 +737,15 @@ function resolveTailDrop(px: number, rects: NodeRect[], rectMap: Map<string, Nod
 }
 
 function resolveTailFromRect(px: number, startRect: NodeRect, rectMap: Map<string, NodeRect>): DropTarget | null {
+  if (startRect.isComposite) {
+    const enterThreshold = startRect.x + indentStep * 0.5;
+    if (px >= enterThreshold) {
+      const node = getNodeAtPath(startRect.path);
+      if (isComposite(node)) {
+        return { parentPath: startRect.path, insertIndex: 0 };
+      }
+    }
+  }
   const chain: NodeRect[] = [];
   let current: NodeRect | undefined = startRect;
   while (current) {
@@ -747,7 +756,8 @@ function resolveTailFromRect(px: number, startRect: NodeRect, rectMap: Map<strin
     const parentNode = getNodeAtPath(parentRect.path);
     if (!isComposite(parentNode)) break;
     const childIndex = current.path[parentRect.path.length];
-    if (childIndex !== parentNode.children.length - 1) break;
+    const isTail = childIndex === parentNode.children.length - 1;
+    if (current !== startRect && !isTail) break;
     current = parentRect;
   }
   const ordered = [...chain].sort((a, b) => a.x - b.x);

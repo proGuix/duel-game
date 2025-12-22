@@ -28,6 +28,7 @@ let dragNode: { path: number[]; node: BTNodeDef } | null = null;
 let ghostContainer: Container | null = null;
 let treeMask: Graphics;
 let ghostAnchor = { dx: 0, dy: 0 };
+let treeContentLeft = 0;
 type NodeRect = {
   path: number[];
   parentPath: number[];
@@ -277,6 +278,7 @@ function redrawTree() {
   treeLayer.addChild(treeContent);
 
   const startX = 20;
+  treeContentLeft = treeX + startX;
   const startY = 20 + scrollOffset;
   const endY = layoutNode(currentDescriptor.root, [], startX, startY, treeW - 40, treeContent, treeX, treeY);
   contentHeight = endY - scrollOffset + 120;
@@ -677,10 +679,6 @@ function findDropTarget(px: number, py: number): DropTarget | null {
   if (!isInsideTree(px, py)) return null;
   if (nodeRects.length === 0 || nodeRects.length === 1) return { parentPath: [], insertIndex: 0 };
   const rects = [...nodeRects].sort((a, b) => a.y - b.y);
-  const rectMap = new Map<string, NodeRect>();
-  for (const rect of nodeRects) {
-    rectMap.set(pathKey(rect.path), rect);
-  }
   if (py < rects[0].y) {
     return { parentPath: [], insertIndex: 0 };
   }
@@ -696,14 +694,12 @@ function findDropTarget(px: number, py: number): DropTarget | null {
     }
     const next = rects[i + 1];
     if (next && py > bottom && py < next.y) {
-      if (next.x < rect.x) {
-        const lateral = resolveTailFromRect(px, rect, rectMap);
-        if (lateral) return lateral;
-      }
+      const horizontal = resolveBetweenHorizontal(px, rect, next);
+      if (horizontal) return horizontal;
       return targetSiblingBefore(next);
     }
   }
-  return resolveTailDrop(px, rects, rectMap);
+  return resolveTailDrop(px, rects);
 }
 
 function resolveInsideRect(rect: NodeRect, py: number): DropTarget | null {
@@ -715,6 +711,23 @@ function resolveInsideRect(rect: NodeRect, py: number): DropTarget | null {
     return { parentPath: rect.path, insertIndex: 0 };
   }
   return targetSiblingAfter(rect);
+}
+
+function resolveBetweenHorizontal(px: number, rectAbove: NodeRect, rectBelow: NodeRect): DropTarget | null {
+  const options: Array<{ depth: number; target: DropTarget }> = [];
+  options.push(...buildAfterChainUntil(rectAbove.path, rectBelow.path));
+  if (rectAbove.isComposite) {
+    const asChild = targetPrependChild(rectAbove);
+    if (asChild) {
+      options.push({ depth: rectAbove.path.length + 1, target: asChild });
+    }
+  } else {
+    const after = targetSiblingAfter(rectAbove);
+    if (after) {
+      options.push({ depth: rectAbove.path.length, target: after });
+    }
+  }
+  return selectDropByDepth(px, options);
 }
 
 function targetSiblingBefore(rect: NodeRect): DropTarget | null {
@@ -731,49 +744,90 @@ function targetSiblingAfter(rect: NodeRect): DropTarget | null {
   return { parentPath, insertIndex: index };
 }
 
-function resolveTailDrop(px: number, rects: NodeRect[], rectMap: Map<string, NodeRect>): DropTarget | null {
-  const lastRect = rects[rects.length - 1];
-  return resolveTailFromRect(px, lastRect, rectMap);
+function buildAfterChain(path: number[]): Array<{ depth: number; target: DropTarget }> {
+  const items: Array<{ depth: number; target: DropTarget }> = [];
+  let current = [...path];
+  while (current.length > 0) {
+    const target = targetAfterPath(current);
+    if (!target) break;
+    items.push({ depth: current.length, target });
+    current = current.slice(0, -1);
+  }
+  return items;
 }
 
-function resolveTailFromRect(px: number, startRect: NodeRect, rectMap: Map<string, NodeRect>): DropTarget | null {
-  if (startRect.isComposite) {
-    const enterThreshold = startRect.x + indentStep * 0.5;
-    if (px >= enterThreshold) {
-      const node = getNodeAtPath(startRect.path);
-      if (isComposite(node)) {
-        return { parentPath: startRect.path, insertIndex: 0 };
-      }
-    }
+function buildAfterChainUntil(path: number[], stopPath: number[]): Array<{ depth: number; target: DropTarget }> {
+  const items: Array<{ depth: number; target: DropTarget }> = [];
+  let current = [...path];
+  while (current.length > 0) {
+    if (isAncestorPath(current, stopPath)) break;
+    const target = targetAfterPath(current);
+    if (!target) break;
+    items.push({ depth: current.length, target });
+    current = current.slice(0, -1);
   }
-  const chain: NodeRect[] = [];
-  let current: NodeRect | undefined = startRect;
-  while (current) {
-    chain.push(current);
-    if (current.path.length === 0) break;
-    const parentRect = rectMap.get(pathKey(current.parentPath));
-    if (!parentRect) break;
-    const parentNode = getNodeAtPath(parentRect.path);
-    if (!isComposite(parentNode)) break;
-    const childIndex = current.path[parentRect.path.length];
-    const isTail = childIndex === parentNode.children.length - 1;
-    if (current !== startRect && !isTail) break;
-    current = parentRect;
-  }
-  const ordered = [...chain].sort((a, b) => a.x - b.x);
-  let chosen = ordered[0];
-  for (const rect of ordered) {
-    if (px >= rect.x - indentStep * 0.5) {
-      chosen = rect;
-    } else {
-      break;
-    }
-  }
-  return targetSiblingAfter(chosen);
+  return items;
 }
 
-function pathKey(path: number[]) {
-  return path.join(',');
+function targetBeforePath(path: number[]): DropTarget | null {
+  if (path.length === 0) return null;
+  const parentPath = path.slice(0, -1);
+  const index = path[parentPath.length];
+  return { parentPath, insertIndex: index };
+}
+
+function targetAfterPath(path: number[]): DropTarget | null {
+  if (path.length === 0) return null;
+  const parentPath = path.slice(0, -1);
+  const index = path[parentPath.length] + 1;
+  return { parentPath, insertIndex: index };
+}
+
+function resolveTailDrop(px: number, rects: NodeRect[]): DropTarget | null {
+  const last = rects[rects.length - 1];
+  const options: Array<{ depth: number; target: DropTarget }> = [];
+  options.push(...buildAfterChain(last.path));
+  if (last.isComposite) {
+    const asChild = targetPrependChild(last);
+    if (asChild) {
+      options.push({ depth: last.path.length + 1, target: asChild });
+    }
+  } else {
+    const after = targetSiblingAfter(last);
+    if (after) {
+      options.push({ depth: last.path.length, target: after });
+    }
+  }
+  return selectDropByDepth(px, options);
+}
+
+function targetPrependChild(rect: NodeRect): DropTarget | null {
+  if (!rect.isComposite) return null;
+  const node = getNodeAtPath(rect.path);
+  if (!isComposite(node)) return null;
+  return { parentPath: rect.path, insertIndex: 0 };
+}
+
+function pointerDepth(px: number) {
+  const relative = (px - treeContentLeft) / indentStep;
+  if (!Number.isFinite(relative)) return 0;
+  return Math.max(0, Math.round(relative));
+}
+
+function selectDropByDepth(px: number, options: Array<{ depth: number; target: DropTarget }>): DropTarget | null {
+  if (options.length === 0) return null;
+  const depth = pointerDepth(px);
+  let best = options[0];
+  let bestDist = Math.abs(depth - best.depth);
+  for (let i = 1; i < options.length; i++) {
+    const opt = options[i];
+    const dist = Math.abs(depth - opt.depth);
+    if (dist < bestDist || (dist === bestDist && opt.depth > best.depth)) {
+      best = opt;
+      bestDist = dist;
+    }
+  }
+  return best.target;
 }
 
 function sameDropTarget(a: DropTarget | null, b: DropTarget | null) {

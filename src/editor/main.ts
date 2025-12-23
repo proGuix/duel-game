@@ -151,20 +151,9 @@ function renderUI() {
   const yBtn = Math.round(padding + 10);
 
   const opts = listBehaviorOptions();
-  const variantBtn = makeButton(
-    `Variante: ${currentDescriptor.label}`,
-    xCursor,
-    yBtn,
-    180,
-    36,
-    () => {
-      const idx = opts.findIndex((o) => o.id === currentDescriptor.id);
-      const next = opts[(idx + 1) % opts.length];
-      loadVariant(next.id);
-    }
-  );
-  uiLayer.addChild(variantBtn.container);
-  xCursor += 190;
+  const variantDropdown = makeVariantDropdown(xCursor, yBtn, 200, 36, opts);
+  uiLayer.addChild(variantDropdown);
+  xCursor += 210;
 
   const controls = [
     { label: 'Nouveau', action: () => { currentDescriptor = createEmptyDescriptor(); redrawTree(); } },
@@ -505,6 +494,124 @@ function makeButton(
   txt.position.set(w / 2 - txt.width / 2, h / 2 - txt.height / 2);
   container.addChild(bg, txt);
   return { container, bg, txt };
+}
+
+function makeVariantDropdown(
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  options: Array<{ id: string; label: string }>
+) {
+  const container = new Container();
+  container.position.set(x, y);
+
+  const bg = new Graphics();
+  bg.roundRect(0, 0, w, h, 10);
+  bg.fill({ color: 0x1a2030, alpha: 0.4 });
+  bg.stroke({ width: 1, color: 0x2a3343, alpha: 0.7 });
+  container.addChild(bg);
+
+  const label = new Text(currentDescriptor.label ?? 'Variantes', {
+    fill: 0xdfe8ff,
+    fontSize: 13,
+    fontWeight: '600'
+  });
+  label.position.set(12, h / 2 - label.height / 2);
+  container.addChild(label);
+
+  const caret = new Graphics();
+  const caretX = w - 24;
+  const caretY = h / 2 - 2;
+  caret.moveTo(caretX, caretY);
+  caret.lineTo(caretX + 12, caretY);
+  caret.lineTo(caretX + 6, caretY + 8);
+  caret.lineTo(caretX, caretY);
+  caret.fill({ color: 0x9ab4e4, alpha: 0.9 });
+  container.addChild(caret);
+
+  const menu = new Container();
+  menu.position.set(0, h + 6);
+  menu.visible = false;
+  container.addChild(menu);
+
+  const itemHeight = 34;
+  const menuHeight = options.length * itemHeight + 8;
+  const menuBg = new Graphics();
+  menuBg.roundRect(0, 0, w, menuHeight, 12);
+  menuBg.fill({ color: 0x0b0f18, alpha: 0.95 });
+  menuBg.stroke({ width: 1, color: 0x1f2a3d, alpha: 0.7 });
+  menu.addChild(menuBg);
+
+  options.forEach((opt, idx) => {
+    const item = new Container();
+    item.position.set(4, 4 + idx * itemHeight);
+    const isCurrent = opt.id === currentDescriptor.id;
+    const btnBg = new Graphics();
+    btnBg.roundRect(0, 0, w - 8, itemHeight - 6, 8);
+    btnBg.fill({ color: isCurrent ? 0x25324a : 0x141a28, alpha: isCurrent ? 0.8 : 0.5 });
+    btnBg.stroke({ width: 1, color: isCurrent ? 0x4da3ff : 0x1f2a3d, alpha: 0.6 });
+    item.addChild(btnBg);
+
+    const txt = new Text(opt.label, { fill: 0xdfe8ff, fontSize: 13, fontWeight: '500' });
+    txt.position.set(10, (itemHeight - 6 - txt.height) / 2);
+    item.addChild(txt);
+
+    item.eventMode = 'static';
+    item.cursor = 'pointer';
+    item.on('pointertap', () => {
+      closeMenu();
+      if (opt.id !== currentDescriptor.id) {
+        loadVariant(opt.id);
+      }
+    });
+
+    menu.addChild(item);
+  });
+
+  let menuOpen = false;
+  let outsideHandler: ((e: PointerEvent) => void) | null = null;
+
+  const closeMenu = () => {
+    menu.visible = false;
+    menuOpen = false;
+    if (outsideHandler) {
+      window.removeEventListener('pointerdown', outsideHandler);
+      outsideHandler = null;
+    }
+  };
+
+  const handleOutside = (evt: PointerEvent) => {
+    const { x: px, y: py } = toCanvasPoint(evt.clientX, evt.clientY);
+    const bounds = container.getBounds();
+    const menuBounds = menu.getBounds();
+    const left = Math.min(bounds.x, menuBounds.x);
+    const right = Math.max(bounds.x + bounds.width, menuBounds.x + menuBounds.width);
+    const top = Math.min(bounds.y, menuBounds.y);
+    const bottom = Math.max(bounds.y + bounds.height, menuBounds.y + menuBounds.height);
+    if (px < left || px > right || py < top || py > bottom) {
+      closeMenu();
+    }
+  };
+
+  const openMenu = () => {
+    if (menuOpen) {
+      closeMenu();
+      return;
+    }
+    menu.visible = true;
+    menuOpen = true;
+    outsideHandler = handleOutside;
+    window.addEventListener('pointerdown', outsideHandler, { capture: true });
+  };
+
+  [bg, label, caret].forEach((sprite) => {
+    sprite.eventMode = 'static';
+    sprite.cursor = 'pointer';
+    sprite.on('pointertap', openMenu);
+  });
+
+  return container;
 }
 
 function buildGhostTree(node: BTNodeDef, maxWidth: number): Container {

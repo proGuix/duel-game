@@ -508,6 +508,19 @@ function makeButton(
   return { container, bg, txt };
 }
 
+function fitTextWithEllipsis(text: Text, maxWidth: number) {
+  if (text.width <= maxWidth) return;
+  const ellipsis = '…';
+  const original = text.text;
+  let trimmed = original;
+  while (trimmed.length > 0) {
+    trimmed = trimmed.slice(0, -1);
+    text.text = trimmed + ellipsis;
+    if (text.width <= maxWidth) return;
+  }
+  text.text = ellipsis;
+}
+
 function makeVariantDropdown(
   x: number,
   y: number,
@@ -529,6 +542,7 @@ function makeVariantDropdown(
     fontWeight: '600'
   });
   label.position.set(12, h / 2 - label.height / 2);
+  fitTextWithEllipsis(label, w - 40);
   container.addChild(label);
 
   const caret = new Graphics();
@@ -569,6 +583,7 @@ function makeVariantDropdown(
 
       const txt = new Text(opt.label, { fill: 0xdfe8ff, fontSize: 13, fontWeight: '500' });
       txt.position.set(10, (itemHeight - 6 - txt.height) / 2);
+      fitTextWithEllipsis(txt, w - 40);
       item.addChild(txt);
 
       item.eventMode = 'static';

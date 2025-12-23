@@ -29,6 +29,8 @@ let ghostContainer: Container | null = null;
 let treeMask: Graphics;
 let ghostAnchor = { dx: 0, dy: 0 };
 let treeContentLeft = 0;
+let activeNamePrompt: Container | null = null;
+let namePromptKeyHandler: ((e: KeyboardEvent) => void) | null = null;
 type NodeRect = {
   path: number[];
   parentPath: number[];
@@ -158,11 +160,15 @@ function renderUI() {
     {
       label: 'Nouveau',
       action: () => {
-        const fresh = createEmptyDescriptor();
-        currentDescriptor = fresh;
-        upsertBehaviorDescriptor(currentDescriptor);
-        redrawTree();
-        renderUI();
+        promptBehaviorName(currentDescriptor?.label ?? 'Nouveau BT', (name) => {
+          if (!name) return;
+          const fresh = createEmptyDescriptor();
+          fresh.label = name;
+          currentDescriptor = validateDescriptor(fresh);
+          upsertBehaviorDescriptor(currentDescriptor);
+          redrawTree();
+          renderUI();
+        });
       }
     },
     {
@@ -696,6 +702,143 @@ function makeVariantDropdown(
   }
 
   return container;
+}
+
+function promptBehaviorName(defaultValue: string, onResult: (name: string | null) => void) {
+  if (!uiLayer || !app) {
+    onResult(null);
+    return;
+  }
+  if (activeNamePrompt) {
+    onResult(null);
+    return;
+  }
+  const overlay = new Container();
+  overlay.zIndex = 30_000;
+  overlay.eventMode = 'static';
+  overlay.cursor = 'default';
+
+  const w = app.renderer.width;
+  const h = app.renderer.height;
+  const shade = new Graphics();
+  shade.rect(0, 0, w, h);
+  shade.fill({ color: 0x02050b, alpha: 0.75 });
+  overlay.addChild(shade);
+
+  const dlgW = 420;
+  const dlgH = 220;
+  const dlgX = (w - dlgW) / 2;
+  const dlgY = (h - dlgH) / 2;
+
+  const panel = new Graphics();
+  panel.roundRect(dlgX, dlgY, dlgW, dlgH, 18);
+  panel.fill({ color: 0x101521, alpha: 0.95 });
+  panel.stroke({ width: 1, color: 0x4da3ff, alpha: 0.6 });
+  overlay.addChild(panel);
+
+  const title = new Text('Nom de la nouvelle variante', { fill: 0xdfe8ff, fontSize: 18, fontWeight: '700' });
+  title.position.set(dlgX + 20, dlgY + 20);
+  overlay.addChild(title);
+
+  const inputBg = new Graphics();
+  inputBg.position.set(dlgX + 20, dlgY + 70);
+  inputBg.roundRect(0, 0, dlgW - 40, 50, 12);
+  inputBg.fill({ color: 0x0b0f18, alpha: 0.95 });
+  inputBg.stroke({ width: 1, color: 0x1f2a3d, alpha: 0.8 });
+  overlay.addChild(inputBg);
+
+  const valueText = new Text('', { fill: 0xdfe8ff, fontSize: 22, fontWeight: '600' });
+  overlay.addChild(valueText);
+
+  const hint = new Text('Entrée pour valider • Échap pour annuler', { fill: 0x9ab0dc, fontSize: 12 });
+  hint.alpha = 0.7;
+  hint.position.set(dlgX + 20, dlgY + dlgH - 70);
+  overlay.addChild(hint);
+
+  const errorText = new Text('', { fill: 0xff7777, fontSize: 12, fontWeight: '600' });
+  errorText.position.set(dlgX + 20, inputBg.y + inputBg.height + 10);
+  overlay.addChild(errorText);
+
+  let value = defaultValue ?? '';
+  const maxLength = 36;
+  const existingNames = new Set(
+    listBehaviorOptions()
+      .map((o) => o.label.trim().toLowerCase())
+      .filter((n) => n.length > 0)
+  );
+
+  const updateValue = () => {
+    valueText.text = value.length ? value : '(vide)';
+    valueText.position.set(
+      inputBg.position.x + 14,
+      inputBg.position.y + (inputBg.height - valueText.height) / 2
+    );
+    errorText.text = '';
+  };
+  updateValue();
+
+  const cleanup = (result: string | null) => {
+    if (namePromptKeyHandler) {
+      window.removeEventListener('keydown', namePromptKeyHandler);
+      namePromptKeyHandler = null;
+    }
+    if (overlay.parent) {
+      overlay.parent.removeChild(overlay);
+    }
+    activeNamePrompt = null;
+    onResult(result);
+  };
+
+  const submit = () => {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      errorText.text = 'Veuillez saisir un nom.';
+      return;
+    }
+    const normalized = trimmed.toLowerCase();
+    if (existingNames.has(normalized)) {
+      errorText.text = 'Un BT porte déjà ce nom.';
+      return;
+    }
+    cleanup(trimmed);
+  };
+
+  const cancel = () => cleanup(null);
+
+  namePromptKeyHandler = (e: KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      submit();
+      return;
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      cancel();
+      return;
+    }
+    if (e.key === 'Backspace') {
+      e.preventDefault();
+      if (value.length > 0) {
+        value = value.slice(0, -1);
+        updateValue();
+      }
+      return;
+    }
+    if (e.key.length === 1 && !e.metaKey && !e.ctrlKey) {
+      if (value.length < maxLength) {
+        value += e.key;
+        updateValue();
+      }
+    }
+  };
+  window.addEventListener('keydown', namePromptKeyHandler);
+
+  const cancelBtn = makeButton('Annuler', dlgX + 20, dlgY + dlgH - 50, 110, 36, cancel);
+  const okBtn = makeButton('Valider', dlgX + dlgW - 140, dlgY + dlgH - 50, 120, 36, submit, true);
+  overlay.addChild(cancelBtn.container, okBtn.container);
+
+  uiLayer.addChild(overlay);
+  activeNamePrompt = overlay;
 }
 
 function buildGhostTree(node: BTNodeDef, maxWidth: number): Container {

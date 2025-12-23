@@ -508,17 +508,27 @@ function makeButton(
   return { container, bg, txt };
 }
 
-function fitTextWithEllipsis(text: Text, maxWidth: number) {
-  if (text.width <= maxWidth) return;
+function applyEllipsis(text: Text, fullText: string, maxWidth: number) {
+  const data = text as Text & { _fullText?: string; _isTruncated?: boolean };
+  data._fullText = fullText;
+  data.text = fullText;
+  if (text.width <= maxWidth) {
+    data._isTruncated = false;
+    return false;
+  }
   const ellipsis = '…';
-  const original = text.text;
-  let trimmed = original;
+  let trimmed = fullText;
   while (trimmed.length > 0) {
     trimmed = trimmed.slice(0, -1);
     text.text = trimmed + ellipsis;
-    if (text.width <= maxWidth) return;
+    if (text.width <= maxWidth) {
+      data._isTruncated = true;
+      return true;
+    }
   }
   text.text = ellipsis;
+  data._isTruncated = true;
+  return true;
 }
 
 function makeVariantDropdown(
@@ -542,7 +552,8 @@ function makeVariantDropdown(
     fontWeight: '600'
   });
   label.position.set(12, h / 2 - label.height / 2);
-  fitTextWithEllipsis(label, w - 40);
+  const labelFull = currentDescriptor.label ?? 'Variantes';
+  const labelTruncated = applyEllipsis(label, labelFull, w - 40);
   container.addChild(label);
 
   const caret = new Graphics();
@@ -559,6 +570,30 @@ function makeVariantDropdown(
   menu.position.set(0, h + 6);
   menu.visible = false;
   container.addChild(menu);
+
+  const tooltip = new Container();
+  tooltip.visible = false;
+  tooltip.zIndex = 9999;
+  const tooltipBg = new Graphics();
+  const tooltipText = new Text('', { fill: 0xdfe8ff, fontSize: 12, fontWeight: '500' });
+  tooltip.addChild(tooltipBg, tooltipText);
+  uiLayer.addChild(tooltip);
+
+  const hideTooltip = () => {
+    tooltip.visible = false;
+  };
+
+  const showTooltip = (content: string, globalX: number, globalY: number) => {
+    tooltipText.text = content;
+    const padding = 8;
+    tooltipBg.clear();
+    tooltipBg.roundRect(0, 0, tooltipText.width + padding * 2, tooltipText.height + padding * 2, 8);
+    tooltipBg.fill({ color: 0x101521, alpha: 0.95 });
+    tooltipBg.stroke({ width: 1, color: 0x4da3ff, alpha: 0.6 });
+    tooltipText.position.set(padding, padding);
+    tooltip.position.set(globalX + 10, globalY + 10);
+    tooltip.visible = true;
+  };
 
   const itemHeight = 34;
   const rebuildMenu = () => {
@@ -583,7 +618,7 @@ function makeVariantDropdown(
 
       const txt = new Text(opt.label, { fill: 0xdfe8ff, fontSize: 13, fontWeight: '500' });
       txt.position.set(10, (itemHeight - 6 - txt.height) / 2);
-      fitTextWithEllipsis(txt, w - 40);
+      const truncated = applyEllipsis(txt, opt.label, w - 40);
       item.addChild(txt);
 
       item.eventMode = 'static';
@@ -594,6 +629,13 @@ function makeVariantDropdown(
           loadVariant(opt.id);
         }
       });
+      if (truncated) {
+        item.on('pointerover', (e: any) => {
+          const pos = e.global ?? { x: 0, y: 0 };
+          showTooltip(opt.label, pos.x, pos.y);
+        });
+        item.on('pointerout', hideTooltip);
+      }
 
       menu.addChild(item);
     });
@@ -611,6 +653,7 @@ function makeVariantDropdown(
       window.removeEventListener('pointerdown', outsideHandler);
       outsideHandler = null;
     }
+    hideTooltip();
   };
 
   const handleOutside = (evt: PointerEvent) => {
@@ -642,6 +685,15 @@ function makeVariantDropdown(
     sprite.cursor = 'pointer';
     sprite.on('pointertap', openMenu);
   });
+
+  if (labelTruncated) {
+    label.eventMode = 'static';
+    label.on('pointerover', (e: any) => {
+      const pos = e.global ?? { x: 0, y: 0 };
+      showTooltip(labelFull, pos.x, pos.y);
+    });
+    label.on('pointerout', hideTooltip);
+  }
 
   return container;
 }
@@ -906,13 +958,6 @@ function buildAfterChainUntil(path: number[], stopPath: number[]): Array<{ depth
     current = current.slice(0, -1);
   }
   return items;
-}
-
-function targetBeforePath(path: number[]): DropTarget | null {
-  if (path.length === 0) return null;
-  const parentPath = path.slice(0, -1);
-  const index = path[parentPath.length];
-  return { parentPath, insertIndex: index };
 }
 
 function targetAfterPath(path: number[]): DropTarget | null {

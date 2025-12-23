@@ -150,13 +150,21 @@ function renderUI() {
   let xCursor = Math.round(padding + 10);
   const yBtn = Math.round(padding + 10);
 
-  const opts = listBehaviorOptions();
-  const variantDropdown = makeVariantDropdown(xCursor, yBtn, 200, 36, opts);
+  const variantDropdown = makeVariantDropdown(xCursor, yBtn, 200, 36);
   uiLayer.addChild(variantDropdown);
   xCursor += 210;
 
   const controls = [
-    { label: 'Nouveau', action: () => { currentDescriptor = createEmptyDescriptor(); redrawTree(); } },
+    {
+      label: 'Nouveau',
+      action: () => {
+        const fresh = createEmptyDescriptor();
+        currentDescriptor = fresh;
+        upsertBehaviorDescriptor(currentDescriptor);
+        redrawTree();
+        renderUI();
+      }
+    },
     {
       label: 'Dupliquer',
       action: () => {
@@ -166,6 +174,7 @@ function renderUI() {
         currentDescriptor = validateDescriptor(clone);
         upsertBehaviorDescriptor(currentDescriptor);
         redrawTree();
+        renderUI();
       }
     },
     {
@@ -174,9 +183,12 @@ function renderUI() {
         const all = listBehaviorOptions();
         if (all.length <= 1) return;
         deleteBehaviorDescriptor(currentDescriptor.id);
-        const next = getBehaviorDescriptor(listBehaviorOptions()[0].id);
+        const remaining = listBehaviorOptions().filter((o) => o.id !== currentDescriptor.id);
+        const nextId = remaining[0]?.id ?? listBehaviorOptions()[0]?.id;
+        const next = nextId ? getBehaviorDescriptor(nextId) : null;
         if (next) currentDescriptor = next;
         redrawTree();
+        renderUI();
       }
     }
   ];
@@ -500,8 +512,7 @@ function makeVariantDropdown(
   x: number,
   y: number,
   w: number,
-  h: number,
-  options: Array<{ id: string; label: string }>
+  h: number
 ) {
   const container = new Container();
   container.position.set(x, y);
@@ -536,38 +547,44 @@ function makeVariantDropdown(
   container.addChild(menu);
 
   const itemHeight = 34;
-  const menuHeight = options.length * itemHeight + 8;
-  const menuBg = new Graphics();
-  menuBg.roundRect(0, 0, w, menuHeight, 12);
-  menuBg.fill({ color: 0x0b0f18, alpha: 0.95 });
-  menuBg.stroke({ width: 1, color: 0x1f2a3d, alpha: 0.7 });
-  menu.addChild(menuBg);
+  const rebuildMenu = () => {
+    menu.removeChildren();
+    const options = listBehaviorOptions();
+    const menuHeight = options.length * itemHeight + 8;
+    const menuBg = new Graphics();
+    menuBg.roundRect(0, 0, w, menuHeight, 12);
+    menuBg.fill({ color: 0x0b0f18, alpha: 0.95 });
+    menuBg.stroke({ width: 1, color: 0x1f2a3d, alpha: 0.7 });
+    menu.addChild(menuBg);
 
-  options.forEach((opt, idx) => {
-    const item = new Container();
-    item.position.set(4, 4 + idx * itemHeight);
-    const isCurrent = opt.id === currentDescriptor.id;
-    const btnBg = new Graphics();
-    btnBg.roundRect(0, 0, w - 8, itemHeight - 6, 8);
-    btnBg.fill({ color: isCurrent ? 0x25324a : 0x141a28, alpha: isCurrent ? 0.8 : 0.5 });
-    btnBg.stroke({ width: 1, color: isCurrent ? 0x4da3ff : 0x1f2a3d, alpha: 0.6 });
-    item.addChild(btnBg);
+    options.forEach((opt, idx) => {
+      const item = new Container();
+      item.position.set(4, 4 + idx * itemHeight);
+      const isCurrent = opt.id === currentDescriptor.id;
+      const btnBg = new Graphics();
+      btnBg.roundRect(0, 0, w - 8, itemHeight - 6, 8);
+      btnBg.fill({ color: isCurrent ? 0x25324a : 0x141a28, alpha: isCurrent ? 0.8 : 0.5 });
+      btnBg.stroke({ width: 1, color: isCurrent ? 0x4da3ff : 0x1f2a3d, alpha: 0.6 });
+      item.addChild(btnBg);
 
-    const txt = new Text(opt.label, { fill: 0xdfe8ff, fontSize: 13, fontWeight: '500' });
-    txt.position.set(10, (itemHeight - 6 - txt.height) / 2);
-    item.addChild(txt);
+      const txt = new Text(opt.label, { fill: 0xdfe8ff, fontSize: 13, fontWeight: '500' });
+      txt.position.set(10, (itemHeight - 6 - txt.height) / 2);
+      item.addChild(txt);
 
-    item.eventMode = 'static';
-    item.cursor = 'pointer';
-    item.on('pointertap', () => {
-      closeMenu();
-      if (opt.id !== currentDescriptor.id) {
-        loadVariant(opt.id);
-      }
+      item.eventMode = 'static';
+      item.cursor = 'pointer';
+      item.on('pointertap', () => {
+        closeMenu();
+        if (opt.id !== currentDescriptor.id) {
+          loadVariant(opt.id);
+        }
+      });
+
+      menu.addChild(item);
     });
+  };
 
-    menu.addChild(item);
-  });
+  rebuildMenu();
 
   let menuOpen = false;
   let outsideHandler: ((e: PointerEvent) => void) | null = null;

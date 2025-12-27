@@ -653,9 +653,18 @@ function makeVariantDropdown(
       item.position.set(4, 4 + idx * itemHeight);
       const isCurrent = opt.id === currentDescriptor.id;
       const btnBg = new Graphics();
-      btnBg.roundRect(0, 0, w - 8, itemHeight - 6, 8);
-      btnBg.fill({ color: isCurrent ? 0x25324a : 0x141a28, alpha: isCurrent ? 0.8 : 0.5 });
-      btnBg.stroke({ width: 1, color: isCurrent ? 0x4da3ff : 0x1f2a3d, alpha: 0.6 });
+      const drawItemBg = (focused: boolean) => {
+        btnBg.clear();
+        btnBg.roundRect(0, 0, w - 8, itemHeight - 6, 8);
+        if (focused) {
+          btnBg.fill({ color: 0x2b3a56, alpha: 0.9 });
+          btnBg.stroke({ width: 1, color: 0x5aa7ff, alpha: 0.9 });
+          return;
+        }
+        btnBg.fill({ color: 0x141a28, alpha: 0.5 });
+        btnBg.stroke({ width: 1, color: 0x1f2a3d, alpha: 0.6 });
+      };
+      drawItemBg(false);
       item.addChild(btnBg);
 
       const txt = createBitmapTextNode(opt.label, { fill: 0xdfe8ff, fontSize: 13, fontWeight: '500' });
@@ -665,6 +674,12 @@ function makeVariantDropdown(
 
       item.eventMode = 'static';
       item.cursor = 'pointer';
+      item.on('pointerover', () => {
+        drawItemBg(true);
+      });
+      item.on('pointerout', () => {
+        drawItemBg(false);
+      });
       item.on('pointertap', () => {
         closeMenu();
         if (opt.id !== currentDescriptor.id) {

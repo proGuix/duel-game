@@ -2,7 +2,11 @@ import {
   Application,
   Container,
   Graphics,
-  Text
+  BitmapText,
+  Sprite,
+  Assets,
+  Texture,
+  type TextStyleFontWeight
 } from 'pixi.js';
 import {
   ensureBehaviorRegistry,
@@ -70,6 +74,38 @@ const paletteItems: Array<{ label: string; node: BTNodeDef }> = [
   { label: 'Strafe', node: { type: 'Action', ref: 'strafe', label: 'Strafe' } },
   { label: 'Charge', node: { type: 'Action', ref: 'charge', label: 'Charge' } }
 ];
+
+type BitmapStyle = {
+  fontFamily?: string;
+  fontSize?: number;
+  fontWeight?: string | number;
+  fill?: number;
+  align?: 'left' | 'center' | 'right';
+};
+
+function normalizeFontWeight(weight?: string | number): TextStyleFontWeight {
+  if (typeof weight === 'number') return `${weight}` as TextStyleFontWeight;
+  if (!weight) return '400';
+  const trimmed = weight.trim().toLowerCase();
+  if (trimmed === 'normal') return '400';
+  if (trimmed === 'bold') return '700';
+  const parsed = Number.parseInt(trimmed, 10);
+  return Number.isFinite(parsed) ? (`${parsed}` as TextStyleFontWeight) : '400';
+}
+
+function createBitmapTextNode(text: string, style: BitmapStyle) {
+  const label = new BitmapText({
+    text,
+    style: {
+      fontFamily: style.fontFamily ?? 'Segoe UI',
+      fontSize: style.fontSize ?? 14,
+      fontWeight: normalizeFontWeight(style.fontWeight),
+      align: style.align ?? 'left',
+      fill: style.fill ?? 0xffffff
+    }
+  });
+  return label;
+}
 
 async function bootstrap() {
   await ensureBehaviorRegistry();
@@ -230,7 +266,7 @@ function renderUI() {
     { title: 'Actions', filter: ['Action'] }
   ];
   for (const cat of categories) {
-    const title = new Text(cat.title, { fill: 0x92b5ff, fontSize: 12, fontWeight: '700' });
+    const title = createBitmapTextNode(cat.title, { fill: 0x92b5ff, fontSize: 12, fontWeight: '700' });
     title.position.set(paletteX + 12, py);
     uiLayer.addChild(title);
     py += 16;
@@ -338,13 +374,13 @@ function layoutNode(
     window.addEventListener('pointerup', onDragEnd);
   });
 
-  const badge = new Text(shortType(node), { fill: 0x9bb5e8, fontSize: 11, fontWeight: '700' });
+  const badge = createBitmapTextNode(shortType(node), { fill: 0x9bb5e8, fontSize: 11, fontWeight: '700' });
   badge.position.set(
     x + indent + 12,
     y + (nodeHeight - badge.height) / 2
   );
 
-  const title = new Text(nodeLabel(node), { fill: 0xdfe8ff, fontSize: 14, fontWeight: '600' });
+  const title = createBitmapTextNode(nodeLabel(node), { fill: 0xdfe8ff, fontSize: 14, fontWeight: '600' });
   title.position.set(
     x + indent + 12 + 40,
     y + (nodeHeight - title.height) / 2
@@ -385,7 +421,7 @@ function layoutNode(
 
   // delete cross
   if (path.length > 0) {
-    const cross = new Text('✕', { fill: 0xaec2e8, fontSize: 12, fontWeight: '700' });
+    const cross = createBitmapTextNode('✕', { fill: 0xaec2e8, fontSize: 12, fontWeight: '700' });
     cross.eventMode = 'static';
     cross.cursor = 'pointer';
     cross.position.set(
@@ -508,14 +544,14 @@ function makeButton(
   bg.eventMode = 'static';
   bg.cursor = 'pointer';
   bg.on('pointertap', onClick);
-  const txt = new Text(label, { fill: primary ? 0x0b0f18 : 0xdfe8ff, fontSize: 13, fontWeight: '600' });
+  const txt = createBitmapTextNode(label, { fill: primary ? 0x0b0f18 : 0xdfe8ff, fontSize: 13, fontWeight: '600' });
   txt.position.set(w / 2 - txt.width / 2, h / 2 - txt.height / 2);
   container.addChild(bg, txt);
   return { container, bg, txt };
 }
 
-function applyEllipsis(text: Text, fullText: string, maxWidth: number) {
-  const data = text as Text & { _fullText?: string; _isTruncated?: boolean };
+function applyEllipsis(text: BitmapText, fullText: string, maxWidth: number) {
+  const data = text as BitmapText & { _fullText?: string; _isTruncated?: boolean };
   data._fullText = fullText;
   data.text = fullText;
   if (text.width <= maxWidth) {
@@ -552,7 +588,7 @@ function makeVariantDropdown(
   bg.stroke({ width: 1, color: 0x2a3343, alpha: 0.7 });
   container.addChild(bg);
 
-  const label = new Text(currentDescriptor.label ?? 'Variantes', {
+  const label = createBitmapTextNode(currentDescriptor.label ?? 'Variantes', {
     fill: 0xdfe8ff,
     fontSize: 13,
     fontWeight: '600'
@@ -581,7 +617,7 @@ function makeVariantDropdown(
   tooltip.visible = false;
   tooltip.zIndex = 9999;
   const tooltipBg = new Graphics();
-  const tooltipText = new Text('', { fill: 0xdfe8ff, fontSize: 12, fontWeight: '500' });
+  const tooltipText = createBitmapTextNode('', { fill: 0xdfe8ff, fontSize: 12, fontWeight: '500' });
   tooltip.addChild(tooltipBg, tooltipText);
   uiLayer.addChild(tooltip);
 
@@ -622,7 +658,7 @@ function makeVariantDropdown(
       btnBg.stroke({ width: 1, color: isCurrent ? 0x4da3ff : 0x1f2a3d, alpha: 0.6 });
       item.addChild(btnBg);
 
-      const txt = new Text(opt.label, { fill: 0xdfe8ff, fontSize: 13, fontWeight: '500' });
+      const txt = createBitmapTextNode(opt.label, { fill: 0xdfe8ff, fontSize: 13, fontWeight: '500' });
       txt.position.set(10, (itemHeight - 6 - txt.height) / 2);
       const truncated = applyEllipsis(txt, opt.label, w - 40);
       item.addChild(txt);
@@ -736,7 +772,7 @@ function promptBehaviorName(defaultValue: string, onResult: (name: string | null
   panel.stroke({ width: 1, color: 0x4da3ff, alpha: 0.6 });
   overlay.addChild(panel);
 
-  const title = new Text('Nom de la nouvelle variante', { fill: 0xdfe8ff, fontSize: 18, fontWeight: '700' });
+  const title = createBitmapTextNode('Nom de la nouvelle variante', { fill: 0xdfe8ff, fontSize: 18, fontWeight: '700' });
   title.position.set(dlgX + 20, dlgY + 20);
   overlay.addChild(title);
 
@@ -747,15 +783,15 @@ function promptBehaviorName(defaultValue: string, onResult: (name: string | null
   inputBg.stroke({ width: 1, color: 0x1f2a3d, alpha: 0.8 });
   overlay.addChild(inputBg);
 
-  const valueText = new Text('', { fill: 0xdfe8ff, fontSize: 22, fontWeight: '600' });
+  const valueText = createBitmapTextNode('', { fill: 0xdfe8ff, fontSize: 22, fontWeight: '600' });
   overlay.addChild(valueText);
 
-  const hint = new Text('Entrée pour valider • Échap pour annuler', { fill: 0x9ab0dc, fontSize: 12 });
+  const hint = createBitmapTextNode('Entrée pour valider • Échap pour annuler', { fill: 0x9ab0dc, fontSize: 12 });
   hint.alpha = 0.7;
   hint.position.set(dlgX + 20, dlgY + dlgH - 70);
   overlay.addChild(hint);
 
-  const errorText = new Text('', { fill: 0xff7777, fontSize: 12, fontWeight: '600' });
+  const errorText = createBitmapTextNode('', { fill: 0xff7777, fontSize: 12, fontWeight: '600' });
   errorText.position.set(dlgX + 20, inputBg.y + inputBg.height + 10);
   overlay.addChild(errorText);
 
@@ -855,9 +891,9 @@ function buildGhostTree(node: BTNodeDef, maxWidth: number): Container {
     bg.fill({ color: 0x101521, alpha: 0.22 });
     bg.stroke({ width: 1, color: 0x1f2a3d, alpha: 0.9 });
     root.addChild(bg);
-    const badge = new Text(shortType(n), { fill: 0x9bb5e8, fontSize: 11, fontWeight: '700' });
+    const badge = createBitmapTextNode(shortType(n), { fill: 0x9bb5e8, fontSize: 11, fontWeight: '700' });
     badge.position.set(indent + 12, cursorY + (cardH - badge.height) / 2);
-    const title = new Text(nodeLabel(n), { fill: 0xdfe8ff, fontSize: 14, fontWeight: '600' });
+    const title = createBitmapTextNode(nodeLabel(n), { fill: 0xdfe8ff, fontSize: 14, fontWeight: '600' });
     title.position.set(indent + 12 + 40, cursorY + (cardH - title.height) / 2);
     root.addChild(badge, title);
     cursorY += cardH + nodeSpacing;
@@ -876,7 +912,7 @@ function buildPaletteGhost(label: string, width: number, height: number): Contai
   bg.fill({ color: 0x1a2030, alpha: 0.9 });
   bg.stroke({ width: 1, color: 0x4da3ff, alpha: 0.4 });
   wrapper.addChild(bg);
-  const txt = new Text(label, { fill: 0xdfe8ff, fontSize: 13, fontWeight: '600' });
+  const txt = createBitmapTextNode(label, { fill: 0xdfe8ff, fontSize: 13, fontWeight: '600' });
   txt.position.set(width / 2 - txt.width / 2, height / 2 - txt.height / 2);
   wrapper.addChild(txt);
   return wrapper;

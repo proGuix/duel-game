@@ -240,14 +240,11 @@ function renderUI() {
     xCursor += 110;
   }
 
-  // Apply/Save on right
-  const applyBtn = makeButton('Appliquer', w - padding - 220, yBtn, 90, 36, () => {
-    upsertBehaviorDescriptor(validateDescriptor(currentDescriptor));
-  });
+  // Save on right
   const saveBtn = makeButton('Enregistrer', w - padding - 120, yBtn, 110, 36, () => {
     upsertBehaviorDescriptor(validateDescriptor(currentDescriptor));
   }, true);
-  uiLayer.addChild(applyBtn.container, saveBtn.container);
+  uiLayer.addChild(saveBtn.container);
 
   // Palette
   const paletteX = Math.round(w - padding - paletteWidth);

@@ -6,7 +6,8 @@ import {
   Sprite,
   Assets,
   Texture,
-  type TextStyleFontWeight
+  type TextStyleFontWeight,
+  Rectangle
 } from 'pixi.js';
 import {
   ensureBehaviorRegistry,
@@ -26,6 +27,7 @@ let treeLayer: Container;
 let uiLayer: Container;
 let currentDescriptor: BehaviorDescriptor;
 let selectedPath: number[] = [];
+let hasUnsavedChanges = false;
 
 let paletteDragNode: BTNodeDef | null = null;
 let dragNode: { path: number[]; node: BTNodeDef } | null = null;
@@ -202,6 +204,7 @@ function renderUI() {
           fresh.label = name;
           currentDescriptor = validateDescriptor(fresh);
           upsertBehaviorDescriptor(currentDescriptor);
+          hasUnsavedChanges = false;
           redrawTree();
           renderUI();
         });
@@ -215,6 +218,7 @@ function renderUI() {
         clone.label = `${clone.label} (copie)`;
         currentDescriptor = validateDescriptor(clone);
         upsertBehaviorDescriptor(currentDescriptor);
+        hasUnsavedChanges = false;
         redrawTree();
         renderUI();
       }
@@ -229,6 +233,7 @@ function renderUI() {
         const nextId = remaining[0]?.id ?? listBehaviorOptions()[0]?.id;
         const next = nextId ? getBehaviorDescriptor(nextId) : null;
         if (next) currentDescriptor = next;
+        hasUnsavedChanges = false;
         redrawTree();
         renderUI();
       }
@@ -242,7 +247,7 @@ function renderUI() {
 
   // Save on right
   const saveBtn = makeButton('Enregistrer', w - padding - 120, yBtn, 110, 36, () => {
-    upsertBehaviorDescriptor(validateDescriptor(currentDescriptor));
+    saveCurrentDescriptor();
   }, true);
   uiLayer.addChild(saveBtn.container);
 
@@ -450,6 +455,7 @@ function moveNode(from: number[], toParent: number[], insertIndex: number) {
   selectedPath = [...toParent, targetIndex];
   dragNode = null;
   dropPreview = null;
+  markDirty();
   redrawTree();
 }
 
@@ -459,6 +465,7 @@ function insertNodeAt(parentPath: number[], insertIndex: number, node: BTNodeDef
   parent.children.splice(insertIndex, 0, node);
   selectedPath = [...parentPath, insertIndex];
   dropPreview = null;
+  markDirty();
   redrawTree();
 }
 
@@ -531,6 +538,13 @@ function makeButton(
 ) {
   const container = new Container();
   container.position.set(x, y);
+  container.eventMode = 'static';
+  container.cursor = 'pointer';
+  container.hitArea = new Rectangle(0, 0, w, h);
+  container.on('pointerdown', (e) => {
+    e.stopPropagation();
+    onClick();
+  });
   const bg = new Graphics();
   bg.roundRect(0, 0, w, h, 10);
   bg.fill({
@@ -538,9 +552,6 @@ function makeButton(
     alpha: primary ? 1 : hollow ? 0.1 : 0.3
   });
   bg.stroke({ width: 1, color: primary ? 0x4da3ff : 0x2a3343, alpha: hollow ? 0.5 : 0.6 });
-  bg.eventMode = 'static';
-  bg.cursor = 'pointer';
-  bg.on('pointertap', onClick);
   const txt = createBitmapTextNode(label, { fill: primary ? 0x0b0f18 : 0xdfe8ff, fontSize: 13, fontWeight: '600' });
   txt.position.set(w / 2 - txt.width / 2, h / 2 - txt.height / 2);
   container.addChild(bg, txt);
@@ -680,7 +691,7 @@ function makeVariantDropdown(
       item.on('pointertap', () => {
         closeMenu();
         if (opt.id !== currentDescriptor.id) {
-          loadVariant(opt.id);
+          requestVariantSwitch(opt.id);
         }
       });
       if (truncated) {
@@ -750,6 +761,34 @@ function makeVariantDropdown(
   }
 
   return container;
+}
+
+function markDirty() {
+  hasUnsavedChanges = true;
+}
+
+function saveCurrentDescriptor() {
+  currentDescriptor = validateDescriptor(currentDescriptor);
+  upsertBehaviorDescriptor(currentDescriptor);
+  hasUnsavedChanges = false;
+}
+
+function requestVariantSwitch(nextId: string) {
+  if (!hasUnsavedChanges) {
+    loadVariant(nextId);
+    return;
+  }
+  promptUnsavedChanges(
+    () => {
+      saveCurrentDescriptor();
+      loadVariant(nextId);
+    },
+    () => {
+      hasUnsavedChanges = false;
+      loadVariant(nextId);
+    },
+    () => {}
+  );
 }
 
 function promptBehaviorName(defaultValue: string, onResult: (name: string | null) => void) {
@@ -889,6 +928,93 @@ function promptBehaviorName(defaultValue: string, onResult: (name: string | null
   activeNamePrompt = overlay;
 }
 
+function promptUnsavedChanges(onSave: () => void, onDiscard: () => void, onCancel: () => void) {
+  if (!uiLayer || !app) {
+    onCancel();
+    return;
+  }
+  if (activeNamePrompt) {
+    onCancel();
+    return;
+  }
+  const overlay = new Container();
+  overlay.zIndex = 30_000;
+  overlay.eventMode = 'static';
+  overlay.cursor = 'default';
+
+  const w = app.renderer.width;
+  const h = app.renderer.height;
+  const shade = new Graphics();
+  shade.rect(0, 0, w, h);
+  shade.fill({ color: 0x02050b, alpha: 0.75 });
+  overlay.addChild(shade);
+
+  const dlgW = 460;
+  const dlgH = 210;
+  const dlgX = (w - dlgW) / 2;
+  const dlgY = (h - dlgH) / 2;
+
+  const panel = new Graphics();
+  panel.roundRect(dlgX, dlgY, dlgW, dlgH, 18);
+  panel.fill({ color: 0x101521, alpha: 0.95 });
+  panel.stroke({ width: 1, color: 0x4da3ff, alpha: 0.6 });
+  overlay.addChild(panel);
+
+  const title = createBitmapTextNode('Modifications non enregistrées', { fill: 0xdfe8ff, fontSize: 18, fontWeight: '700' });
+  title.position.set(dlgX + 20, dlgY + 20);
+  overlay.addChild(title);
+
+  const message = createBitmapTextNode(
+    'Voulez-vous enregistrer avant de changer de variante ?',
+    { fill: 0x9ab0dc, fontSize: 13, fontWeight: '500' }
+  );
+  message.position.set(dlgX + 20, dlgY + 60);
+  overlay.addChild(message);
+
+  const cleanup = () => {
+    if (namePromptKeyHandler) {
+      window.removeEventListener('keydown', namePromptKeyHandler);
+      namePromptKeyHandler = null;
+    }
+    if (overlay.parent) overlay.parent.removeChild(overlay);
+    activeNamePrompt = null;
+  };
+
+  const handleSave = () => {
+    cleanup();
+    onSave();
+  };
+  const handleDiscard = () => {
+    cleanup();
+    onDiscard();
+  };
+  const handleCancel = () => {
+    cleanup();
+    onCancel();
+  };
+
+  namePromptKeyHandler = (e: KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleSave();
+      return;
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      handleCancel();
+    }
+  };
+  window.addEventListener('keydown', namePromptKeyHandler);
+
+  const ignoreBtn = makeButton('Ignorer', dlgX + 20, dlgY + dlgH - 50, 110, 36, handleDiscard);
+  const cancelBtn = makeButton('Annuler', dlgX + 140, dlgY + dlgH - 50, 110, 36, handleCancel);
+  const saveBtn = makeButton('Enregistrer', dlgX + dlgW - 150, dlgY + dlgH - 50, 130, 36, handleSave, true);
+  overlay.addChild(ignoreBtn.container, cancelBtn.container, saveBtn.container);
+
+  uiLayer.addChild(overlay);
+  activeNamePrompt = overlay;
+}
+
 function buildGhostTree(node: BTNodeDef, maxWidth: number): Container {
   const root = new Container();
   let cursorY = 0;
@@ -967,6 +1093,7 @@ function removeNode(path: number[]) {
   if (path.length === 0) return;
   detachNode(path);
   selectedPath = path.slice(0, -1);
+  markDirty();
   redrawTree();
 }
 
@@ -1034,6 +1161,7 @@ function loadVariant(id: string) {
   if (!desc) return;
   currentDescriptor = desc;
   selectedPath = [];
+  hasUnsavedChanges = false;
   redrawTree();
   renderUI();
 }

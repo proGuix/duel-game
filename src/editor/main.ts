@@ -248,7 +248,7 @@ function renderUI() {
   // Save on right
   const saveBtn = makeButton('Enregistrer', w - padding - 120, yBtn, 110, 36, () => {
     saveCurrentDescriptor();
-  }, true);
+  }, hasUnsavedChanges);
   uiLayer.addChild(saveBtn.container);
 
   // Palette
@@ -788,12 +788,14 @@ function makeVariantDropdown(
 
 function markDirty() {
   hasUnsavedChanges = true;
+  renderUI();
 }
 
 function saveCurrentDescriptor() {
   currentDescriptor = validateDescriptor(currentDescriptor);
   upsertBehaviorDescriptor(currentDescriptor);
   hasUnsavedChanges = false;
+  renderUI();
 }
 
 function requestVariantSwitch(nextId: string) {

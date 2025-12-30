@@ -656,16 +656,36 @@ function makeVariantDropdown(
   };
 
   const itemHeight = 34;
+  let menuWheelHandler: ((e: WheelEvent) => void) | null = null;
   const rebuildMenu = () => {
     menu.removeChildren();
     const options = listBehaviorOptions();
     const menuPad = 6;
-    const menuHeight = options.length * itemHeight + menuPad * 2 - 6;
+    const contentHeight = options.length * itemHeight + menuPad * 2 - 6;
+    const maxMenuHeight = 320;
+    const menuHeight = Math.min(contentHeight, maxMenuHeight);
     const menuBg = new Graphics();
     menuBg.roundRect(0, 0, w, menuHeight, 12);
     menuBg.fill({ color: 0x0b0f18, alpha: 0.95 });
     menuBg.stroke({ width: 1, color: 0x1f2a3d, alpha: 0.7 });
     menu.addChild(menuBg);
+
+    const menuMask = new Graphics();
+    menuMask.rect(0, 0, w, menuHeight);
+    menuMask.fill({ color: 0xffffff, alpha: 1 });
+    menu.addChild(menuMask);
+
+    const menuContent = new Container();
+    menuContent.mask = menuMask;
+    menu.addChild(menuContent);
+
+    let scrollY = 0;
+    const maxScroll = Math.max(0, contentHeight - menuHeight);
+    const applyScroll = () => {
+      scrollY = Math.max(0, Math.min(maxScroll, scrollY));
+      menuContent.y = -scrollY;
+    };
+    applyScroll();
 
     const drawFns: Array<(focused: boolean) => void> = [];
     let selectedIndex = -1;
@@ -731,12 +751,30 @@ function makeVariantDropdown(
         item.on('pointerout', hideTooltip);
       }
 
-      menu.addChild(item);
+      menuContent.addChild(item);
     });
 
     if (selectedIndex >= 0) {
       setFocusIndex(selectedIndex);
     }
+
+    const onMenuWheel = (e: WheelEvent) => {
+      if (!menu.visible || maxScroll <= 0) return;
+      const { x: px, y: py } = toCanvasPoint(e.clientX, e.clientY);
+      const bounds = menu.getBounds();
+      if (px < bounds.x || px > bounds.x + bounds.width || py < bounds.y || py > bounds.y + bounds.height) {
+        return;
+      }
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      scrollY += e.deltaY * 0.6;
+      applyScroll();
+    };
+
+    if (menuWheelHandler) {
+      window.removeEventListener('wheel', menuWheelHandler, { capture: true } as AddEventListenerOptions);
+    }
+    menuWheelHandler = onMenuWheel;
   };
 
   rebuildMenu();
@@ -750,6 +788,10 @@ function makeVariantDropdown(
     if (outsideHandler) {
       window.removeEventListener('pointerdown', outsideHandler);
       outsideHandler = null;
+    }
+    if (menuWheelHandler) {
+      window.removeEventListener('wheel', menuWheelHandler, { capture: true } as AddEventListenerOptions);
+      menuWheelHandler = null;
     }
     hideTooltip();
   };
@@ -777,6 +819,9 @@ function makeVariantDropdown(
     rebuildMenu();
     outsideHandler = handleOutside;
     window.addEventListener('pointerdown', outsideHandler, { capture: true });
+    if (menuWheelHandler) {
+      window.addEventListener('wheel', menuWheelHandler, { capture: true, passive: false });
+    }
   };
 
   [bg, label, caret].forEach((sprite) => {

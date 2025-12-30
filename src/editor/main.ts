@@ -656,6 +656,21 @@ function makeVariantDropdown(
     menuBg.stroke({ width: 1, color: 0x1f2a3d, alpha: 0.7 });
     menu.addChild(menuBg);
 
+    const drawFns: Array<(focused: boolean) => void> = [];
+    let selectedIndex = -1;
+    let focusedIndex = -1;
+
+    const setFocusIndex = (nextIndex: number) => {
+      if (focusedIndex === nextIndex) return;
+      if (focusedIndex >= 0 && drawFns[focusedIndex]) {
+        drawFns[focusedIndex](false);
+      }
+      focusedIndex = nextIndex;
+      if (focusedIndex >= 0 && drawFns[focusedIndex]) {
+        drawFns[focusedIndex](true);
+      }
+    };
+
     options.forEach((opt, idx) => {
       const item = new Container();
       item.position.set(4, 4 + idx * itemHeight);
@@ -673,6 +688,7 @@ function makeVariantDropdown(
         btnBg.stroke({ width: 1, color: 0x1f2a3d, alpha: 0.6 });
       };
       drawItemBg(false);
+      drawFns[idx] = drawItemBg;
       item.addChild(btnBg);
 
       const txt = createBitmapTextNode(opt.label, { fill: 0xdfe8ff, fontSize: 13, fontWeight: '500' });
@@ -680,13 +696,15 @@ function makeVariantDropdown(
       const truncated = applyEllipsis(txt, opt.label, w - 40);
       item.addChild(txt);
 
+      if (isCurrent) selectedIndex = idx;
+
       item.eventMode = 'static';
       item.cursor = 'pointer';
       item.on('pointerover', () => {
-        drawItemBg(true);
+        setFocusIndex(idx);
       });
       item.on('pointerout', () => {
-        drawItemBg(false);
+        setFocusIndex(-1);
       });
       item.on('pointertap', () => {
         closeMenu();
@@ -704,6 +722,10 @@ function makeVariantDropdown(
 
       menu.addChild(item);
     });
+
+    if (selectedIndex >= 0) {
+      setFocusIndex(selectedIndex);
+    }
   };
 
   rebuildMenu();
@@ -741,6 +763,7 @@ function makeVariantDropdown(
     }
     menu.visible = true;
     menuOpen = true;
+    rebuildMenu();
     outsideHandler = handleOutside;
     window.addEventListener('pointerdown', outsideHandler, { capture: true });
   };

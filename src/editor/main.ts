@@ -755,6 +755,10 @@ function makeVariantDropdown(
     });
 
     if (selectedIndex >= 0) {
+      const itemTop = menuPad + selectedIndex * itemHeight;
+      const itemCenter = itemTop + (itemHeight - 6) / 2;
+      scrollY = itemCenter - menuHeight / 2;
+      applyScroll();
       setFocusIndex(selectedIndex);
     }
 

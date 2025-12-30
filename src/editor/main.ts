@@ -657,6 +657,8 @@ function makeVariantDropdown(
 
   const itemHeight = 34;
   let menuWheelHandler: ((e: WheelEvent) => void) | null = null;
+  let menuDragHandler: ((e: PointerEvent) => void) | null = null;
+  let menuDragEndHandler: ((e: PointerEvent) => void) | null = null;
   const rebuildMenu = () => {
     menu.removeChildren();
     const options = listBehaviorOptions();
@@ -681,9 +683,31 @@ function makeVariantDropdown(
 
     let scrollY = 0;
     const maxScroll = Math.max(0, contentHeight - menuHeight);
+    const itemRightPad = maxScroll > 0 ? 14 : 0;
+    let thumb: Graphics | null = null;
+    const trackWidth = 4;
+    const trackPad = 6;
+    const trackInset = 1;
+    const trackX = w - trackWidth - 4;
+    const trackHeight = Math.max(0, menuHeight - trackPad * 2);
+    const trackInnerY = trackPad + trackInset;
+    const trackInnerHeight = Math.max(0, trackHeight - trackInset * 2);
+    const thumbMinHeight = 18;
+    const thumbHeight = maxScroll > 0
+      ? Math.max(thumbMinHeight, (menuHeight / contentHeight) * trackInnerHeight)
+      : trackInnerHeight;
+
+    const updateThumb = () => {
+      if (!thumb || maxScroll <= 0) return;
+      const ratio = scrollY / maxScroll;
+      const available = trackInnerHeight - thumbHeight;
+      thumb.y = trackInnerY + ratio * available;
+    };
+
     const applyScroll = () => {
       scrollY = Math.max(0, Math.min(maxScroll, scrollY));
       menuContent.y = -scrollY;
+      updateThumb();
     };
     applyScroll();
 
@@ -709,7 +733,7 @@ function makeVariantDropdown(
       const btnBg = new Graphics();
       const drawItemBg = (focused: boolean) => {
         btnBg.clear();
-        btnBg.roundRect(0, 0, w - 8, itemHeight - 6, 8);
+        btnBg.roundRect(0, 0, w - 8 - itemRightPad, itemHeight - 6, 8);
         if (focused) {
           btnBg.fill({ color: 0x2b3a56, alpha: 0.9 });
           btnBg.stroke({ width: 1, color: 0x5aa7ff, alpha: 0.9 });
@@ -724,7 +748,7 @@ function makeVariantDropdown(
 
       const txt = createBitmapTextNode(opt.label, { fill: 0xdfe8ff, fontSize: 13, fontWeight: '500' });
       txt.position.set(10, (itemHeight - 6 - txt.height) / 2);
-      const truncated = applyEllipsis(txt, opt.label, w - 40);
+      const truncated = applyEllipsis(txt, opt.label, w - 40 - itemRightPad);
       item.addChild(txt);
 
       if (isCurrent) selectedIndex = idx;
@@ -762,6 +786,74 @@ function makeVariantDropdown(
       setFocusIndex(selectedIndex);
     }
 
+    if (maxScroll > 0) {
+      const track = new Graphics();
+      track.roundRect(trackX, trackPad, trackWidth, trackHeight, 3);
+      track.fill({ color: 0x0b0f18, alpha: 0.9 });
+      track.stroke({ width: 1, color: 0x1f2a3d, alpha: 0.6 });
+      track.eventMode = 'static';
+      track.cursor = 'pointer';
+      menu.addChild(track);
+
+      thumb = new Graphics();
+      thumb.roundRect(trackX, 0, trackWidth, thumbHeight, 3);
+      thumb.fill({ color: 0x4da3ff, alpha: 0.8 });
+      thumb.eventMode = 'static';
+      thumb.cursor = 'pointer';
+      menu.addChild(thumb);
+      thumb.y = trackInnerY;
+      updateThumb();
+
+      let dragging = false;
+      let dragOffset = 0;
+
+      const toLocalY = (e: PointerEvent) => {
+        const local = menu.toLocal({ x: e.clientX, y: e.clientY });
+        return local.y;
+      };
+
+      const setScrollFromThumb = (thumbY: number) => {
+        const available = trackInnerHeight - thumbHeight;
+        const clamped = Math.max(trackInnerY, Math.min(trackInnerY + available, thumbY));
+        const ratio = available > 0 ? (clamped - trackInnerY) / available : 0;
+        scrollY = ratio * maxScroll;
+        applyScroll();
+      };
+
+      const onThumbDown = (e: PointerEvent) => {
+        dragging = true;
+        dragOffset = toLocalY(e) - (thumb?.y ?? 0);
+        e.stopPropagation();
+      };
+
+      const onTrackDown = (e: PointerEvent) => {
+        const clickY = toLocalY(e);
+        setScrollFromThumb(clickY - thumbHeight / 2);
+      };
+
+      const onDragMove = (e: PointerEvent) => {
+        if (!dragging) return;
+        const nextY = toLocalY(e) - dragOffset;
+        setScrollFromThumb(nextY);
+      };
+
+      const onDragEnd = () => {
+        dragging = false;
+      };
+
+      thumb.on('pointerdown', onThumbDown);
+      track.on('pointerdown', onTrackDown);
+
+      if (menuDragHandler) {
+        window.removeEventListener('pointermove', menuDragHandler);
+      }
+      if (menuDragEndHandler) {
+        window.removeEventListener('pointerup', menuDragEndHandler);
+      }
+      menuDragHandler = onDragMove;
+      menuDragEndHandler = onDragEnd;
+    }
+
     const onMenuWheel = (e: WheelEvent) => {
       if (!menu.visible || maxScroll <= 0) return;
       const { x: px, y: py } = toCanvasPoint(e.clientX, e.clientY);
@@ -797,6 +889,14 @@ function makeVariantDropdown(
       window.removeEventListener('wheel', menuWheelHandler, { capture: true } as AddEventListenerOptions);
       menuWheelHandler = null;
     }
+    if (menuDragHandler) {
+      window.removeEventListener('pointermove', menuDragHandler);
+      menuDragHandler = null;
+    }
+    if (menuDragEndHandler) {
+      window.removeEventListener('pointerup', menuDragEndHandler);
+      menuDragEndHandler = null;
+    }
     hideTooltip();
   };
 
@@ -825,6 +925,12 @@ function makeVariantDropdown(
     window.addEventListener('pointerdown', outsideHandler, { capture: true });
     if (menuWheelHandler) {
       window.addEventListener('wheel', menuWheelHandler, { capture: true, passive: false });
+    }
+    if (menuDragHandler) {
+      window.addEventListener('pointermove', menuDragHandler);
+    }
+    if (menuDragEndHandler) {
+      window.addEventListener('pointerup', menuDragEndHandler);
     }
   };
 

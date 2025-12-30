@@ -187,12 +187,23 @@ function renderUI() {
   toolbar.stroke({ width: 1, color: 0x1c2637, alpha: 0.7 });
   uiLayer.addChild(toolbar);
 
-  let xCursor = Math.round(padding + 10);
   const yBtn = Math.round(padding + 10);
+  const controlBtnWidth = 100;
+  const controlBtnGap = 10;
+  const saveBtnWidth = 110;
+  const dropdownWidth = 200;
+  const itemHeight = 36;
+  const totalWidth =
+    dropdownWidth +
+    controlBtnGap +
+    3 * controlBtnWidth +
+    3 * controlBtnGap +
+    saveBtnWidth;
+  let xCursor = Math.round((w - totalWidth) / 2);
 
-  const variantDropdown = makeVariantDropdown(xCursor, yBtn, 200, 36);
+  const variantDropdown = makeVariantDropdown(xCursor, yBtn, dropdownWidth, itemHeight);
   uiLayer.addChild(variantDropdown);
-  xCursor += 210;
+  xCursor += dropdownWidth + controlBtnGap;
 
   const controls = [
     {
@@ -240,13 +251,12 @@ function renderUI() {
     }
   ];
   for (const btn of controls) {
-    const b = makeButton(btn.label, xCursor, yBtn, 100, 36, btn.action);
+    const b = makeButton(btn.label, xCursor, yBtn, controlBtnWidth, itemHeight, btn.action);
     uiLayer.addChild(b.container);
-    xCursor += 110;
+    xCursor += controlBtnWidth + controlBtnGap;
   }
 
-  // Save on right
-  const saveBtn = makeButton('Enregistrer', w - padding - 120, yBtn, 110, 36, () => {
+  const saveBtn = makeButton('Enregistrer', xCursor, yBtn, saveBtnWidth, itemHeight, () => {
     saveCurrentDescriptor();
   }, hasUnsavedChanges);
   uiLayer.addChild(saveBtn.container);

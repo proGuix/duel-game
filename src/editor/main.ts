@@ -659,7 +659,8 @@ function makeVariantDropdown(
   const rebuildMenu = () => {
     menu.removeChildren();
     const options = listBehaviorOptions();
-    const menuHeight = options.length * itemHeight + 8;
+    const menuPad = 6;
+    const menuHeight = options.length * itemHeight + menuPad * 2 - 6;
     const menuBg = new Graphics();
     menuBg.roundRect(0, 0, w, menuHeight, 12);
     menuBg.fill({ color: 0x0b0f18, alpha: 0.95 });
@@ -683,7 +684,7 @@ function makeVariantDropdown(
 
     options.forEach((opt, idx) => {
       const item = new Container();
-      item.position.set(4, 4 + idx * itemHeight);
+      item.position.set(4, menuPad + idx * itemHeight);
       const isCurrent = opt.id === currentDescriptor.id;
       const btnBg = new Graphics();
       const drawItemBg = (focused: boolean) => {

@@ -660,6 +660,7 @@ function makeVariantDropdown(
   let menuDragHandler: ((e: PointerEvent) => void) | null = null;
   let menuDragEndHandler: ((e: PointerEvent) => void) | null = null;
   let menuKeyHandler: ((e: KeyboardEvent) => void) | null = null;
+  let menuPointerMoveHandler: ((e: PointerEvent) => void) | null = null;
   let menuFocusIndex = -1;
   const rebuildMenu = () => {
     menu.removeChildren();
@@ -918,6 +919,7 @@ function makeVariantDropdown(
       const next = Math.max(0, Math.min(options.length - 1, menuFocusIndex + dir));
       menuFocusIndex = next;
       setFocusIndex(next);
+      hideTooltip();
       const itemTop = menuPad + next * itemHeight;
       const itemBottom = itemTop + (itemHeight - 6);
       const desiredTop = itemTop - menuPad;
@@ -928,6 +930,36 @@ function makeVariantDropdown(
         scrollY = desiredBottom - menuHeight;
       }
       applyScroll();
+      if (truncatedFlags[next]) {
+        const bounds = menu.getBounds();
+        showTooltip(labels[next], bounds.x + w - 12, bounds.y + itemTop - scrollY + itemHeight / 2);
+      }
+    };
+
+    if (menuPointerMoveHandler) {
+      window.removeEventListener('pointermove', menuPointerMoveHandler);
+    }
+    menuPointerMoveHandler = (e: PointerEvent) => {
+      if (!menu.visible) return;
+      const local = menu.toLocal({ x: e.clientX, y: e.clientY });
+      if (local.x < 0 || local.x > w || local.y < 0 || local.y > menuHeight) {
+        hideTooltip();
+        return;
+      }
+      const localY = local.y + scrollY - menuPad;
+      const idx = Math.floor(localY / itemHeight);
+      if (idx >= 0 && idx < options.length) {
+        setFocusIndex(idx);
+        menuFocusIndex = idx;
+        if (truncatedFlags[idx]) {
+          const pos = toCanvasPoint(e.clientX, e.clientY);
+          showTooltip(labels[idx], pos.x, pos.y);
+        } else {
+          hideTooltip();
+        }
+      } else {
+        hideTooltip();
+      }
     };
   };
 
@@ -958,6 +990,10 @@ function makeVariantDropdown(
     if (menuKeyHandler) {
       window.removeEventListener('keydown', menuKeyHandler);
       menuKeyHandler = null;
+    }
+    if (menuPointerMoveHandler) {
+      window.removeEventListener('pointermove', menuPointerMoveHandler);
+      menuPointerMoveHandler = null;
     }
     hideTooltip();
   };
@@ -996,6 +1032,9 @@ function makeVariantDropdown(
     }
     if (menuKeyHandler) {
       window.addEventListener('keydown', menuKeyHandler);
+    }
+    if (menuPointerMoveHandler) {
+      window.addEventListener('pointermove', menuPointerMoveHandler);
     }
   };
 

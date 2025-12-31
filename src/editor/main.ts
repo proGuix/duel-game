@@ -961,9 +961,20 @@ function makeVariantDropdown(
     }
     menuPointerMoveHandler = (e: PointerEvent) => {
       if (!menu.visible) return;
+      const { x: px, y: py } = toCanvasPoint(e.clientX, e.clientY);
       const local = menu.toLocal({ x: e.clientX, y: e.clientY });
+      const labelBounds = label.getBounds();
+      const overLabel =
+        px >= labelBounds.x &&
+        px <= labelBounds.x + labelBounds.width &&
+        py >= labelBounds.y &&
+        py <= labelBounds.y + labelBounds.height;
       if (local.x < 0 || local.x > w || local.y < 0 || local.y > menuHeight) {
-        hideTooltip();
+        if (overLabel && labelTruncated) {
+          showTooltip(labelFull, px, py);
+        } else {
+          hideTooltip();
+        }
         return;
       }
       const idx = hitItemIndex(local.x, local.y + scrollY);
@@ -1065,10 +1076,12 @@ function makeVariantDropdown(
 
   if (labelTruncated) {
     label.eventMode = 'static';
-    label.on('pointerover', (e: any) => {
+    const follow = (e: any) => {
       const pos = e.global ?? { x: 0, y: 0 };
       showTooltip(labelFull, pos.x, pos.y);
-    });
+    };
+    label.on('pointerover', follow);
+    label.on('pointermove', follow);
     label.on('pointerout', hideTooltip);
   }
 

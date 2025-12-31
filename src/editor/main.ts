@@ -676,7 +676,7 @@ function makeVariantDropdown(
     menu.addChild(menuBg);
 
     const menuMask = new Graphics();
-    menuMask.rect(0, 0, w, menuHeight);
+    menuMask.roundRect(0, 0, w, menuHeight, 12);
     menuMask.fill({ color: 0xffffff, alpha: 1 });
     menu.addChild(menuMask);
 

@@ -659,6 +659,8 @@ function makeVariantDropdown(
   let menuWheelHandler: ((e: WheelEvent) => void) | null = null;
   let menuDragHandler: ((e: PointerEvent) => void) | null = null;
   let menuDragEndHandler: ((e: PointerEvent) => void) | null = null;
+  let menuKeyHandler: ((e: KeyboardEvent) => void) | null = null;
+  let menuFocusIndex = -1;
   const rebuildMenu = () => {
     menu.removeChildren();
     const options = listBehaviorOptions();
@@ -757,6 +759,7 @@ function makeVariantDropdown(
       item.cursor = 'pointer';
       item.on('pointerover', () => {
         setFocusIndex(idx);
+        menuFocusIndex = idx;
       });
       item.on('pointerout', () => {
         setFocusIndex(-1);
@@ -784,6 +787,7 @@ function makeVariantDropdown(
       scrollY = itemCenter - menuHeight / 2;
       applyScroll();
       setFocusIndex(selectedIndex);
+      menuFocusIndex = selectedIndex;
     }
 
     if (maxScroll > 0) {
@@ -871,6 +875,40 @@ function makeVariantDropdown(
       window.removeEventListener('wheel', menuWheelHandler, { capture: true } as AddEventListenerOptions);
     }
     menuWheelHandler = onMenuWheel;
+
+    if (menuKeyHandler) {
+      window.removeEventListener('keydown', menuKeyHandler);
+    }
+    menuKeyHandler = (e: KeyboardEvent) => {
+      if (!menu.visible) return;
+      if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp' && e.key !== 'Enter' && e.key !== 'Escape') return;
+      e.preventDefault();
+      if (e.key === 'Escape') {
+        closeMenu();
+        return;
+      }
+      if (e.key === 'Enter') {
+        const opts = listBehaviorOptions();
+        if (menuFocusIndex >= 0 && menuFocusIndex < opts.length) {
+          const opt = opts[menuFocusIndex];
+          closeMenu();
+          if (opt.id !== currentDescriptor.id) requestVariantSwitch(opt.id);
+        }
+        return;
+      }
+      const dir = e.key === 'ArrowDown' ? 1 : -1;
+      const next = Math.max(0, Math.min(options.length - 1, menuFocusIndex + dir));
+      menuFocusIndex = next;
+      setFocusIndex(next);
+      const itemTop = menuPad + next * itemHeight;
+      const itemBottom = itemTop + (itemHeight - 6);
+      if (itemTop < scrollY) {
+        scrollY = itemTop;
+      } else if (itemBottom > scrollY + menuHeight) {
+        scrollY = itemBottom - menuHeight;
+      }
+      applyScroll();
+    };
   };
 
   rebuildMenu();
@@ -896,6 +934,10 @@ function makeVariantDropdown(
     if (menuDragEndHandler) {
       window.removeEventListener('pointerup', menuDragEndHandler);
       menuDragEndHandler = null;
+    }
+    if (menuKeyHandler) {
+      window.removeEventListener('keydown', menuKeyHandler);
+      menuKeyHandler = null;
     }
     hideTooltip();
   };
@@ -931,6 +973,9 @@ function makeVariantDropdown(
     }
     if (menuDragEndHandler) {
       window.addEventListener('pointerup', menuDragEndHandler);
+    }
+    if (menuKeyHandler) {
+      window.addEventListener('keydown', menuKeyHandler);
     }
   };
 

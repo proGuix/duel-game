@@ -673,6 +673,12 @@ function makeVariantDropdown(
     menuBg.roundRect(0, 0, w, menuHeight, 12);
     menuBg.fill({ color: 0x0b0f18, alpha: 0.95 });
     menuBg.stroke({ width: 1, color: 0x1f2a3d, alpha: 0.7 });
+    menu.eventMode = 'static';
+    menu.hitArea = new Rectangle(0, 0, w, menuHeight);
+    menuBg.eventMode = 'static';
+    menuBg.on('pointerdown', (e) => {
+      e.stopPropagation();
+    });
     menu.addChild(menuBg);
 
     const menuMask = new Graphics();

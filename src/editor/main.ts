@@ -922,10 +922,12 @@ function makeVariantDropdown(
       setFocusIndex(next);
       const itemTop = menuPad + next * itemHeight;
       const itemBottom = itemTop + (itemHeight - 6);
-      if (itemTop < scrollY) {
-        scrollY = itemTop;
-      } else if (itemBottom > scrollY + menuHeight) {
-        scrollY = itemBottom - menuHeight;
+      const desiredTop = itemTop - menuPad;
+      const desiredBottom = itemBottom + menuPad;
+      if (desiredTop < scrollY) {
+        scrollY = desiredTop;
+      } else if (desiredBottom > scrollY + menuHeight) {
+        scrollY = desiredBottom - menuHeight;
       }
       applyScroll();
     };

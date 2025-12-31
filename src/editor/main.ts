@@ -719,6 +719,20 @@ function makeVariantDropdown(
     const labels: string[] = [];
     let selectedIndex = -1;
     let focusedIndex = -1;
+    const itemX = 4;
+    const itemWidth = w - 8 - itemRightPad;
+
+    const hitItemIndex = (localX: number, localY: number) => {
+      if (localX < itemX || localX > itemX + itemWidth) return -1;
+      const offsetY = localY - menuPad;
+      if (offsetY < 0) return -1;
+      const idx = Math.floor(offsetY / itemHeight);
+      const itemTop = menuPad + idx * itemHeight;
+      const itemBottom = itemTop + (itemHeight - 6);
+      if (idx < 0 || idx >= options.length) return -1;
+      if (localY < itemTop || localY > itemBottom) return -1;
+      return idx;
+    };
 
     const setFocusIndex = (nextIndex: number) => {
       if (focusedIndex === nextIndex) return;
@@ -874,7 +888,7 @@ function makeVariantDropdown(
       applyScroll();
       const local = menu.toLocal({ x: e.clientX, y: e.clientY });
       const localY = local.y + scrollY - menuPad;
-      const idx = Math.floor(localY / itemHeight);
+      const idx = hitItemIndex(local.x, local.y + scrollY);
       if (idx >= 0 && idx < options.length) {
         setFocusIndex(idx);
         menuFocusIndex = idx;
@@ -946,8 +960,7 @@ function makeVariantDropdown(
         hideTooltip();
         return;
       }
-      const localY = local.y + scrollY - menuPad;
-      const idx = Math.floor(localY / itemHeight);
+      const idx = hitItemIndex(local.x, local.y + scrollY);
       if (idx >= 0 && idx < options.length) {
         setFocusIndex(idx);
         menuFocusIndex = idx;

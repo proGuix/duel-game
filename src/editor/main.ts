@@ -714,6 +714,8 @@ function makeVariantDropdown(
     applyScroll();
 
     const drawFns: Array<(focused: boolean) => void> = [];
+    const truncatedFlags: boolean[] = [];
+    const labels: string[] = [];
     let selectedIndex = -1;
     let focusedIndex = -1;
 
@@ -751,6 +753,8 @@ function makeVariantDropdown(
       const txt = createBitmapTextNode(opt.label, { fill: 0xdfe8ff, fontSize: 13, fontWeight: '500' });
       txt.position.set(10, (itemHeight - 6 - txt.height) / 2);
       const truncated = applyEllipsis(txt, opt.label, w - 40 - itemRightPad);
+      truncatedFlags[idx] = truncated;
+      labels[idx] = opt.label;
       item.addChild(txt);
 
       if (isCurrent) selectedIndex = idx;
@@ -869,6 +873,22 @@ function makeVariantDropdown(
       e.stopImmediatePropagation();
       scrollY += e.deltaY * 0.6;
       applyScroll();
+      const local = menu.toLocal({ x: e.clientX, y: e.clientY });
+      const localY = local.y + scrollY - menuPad;
+      const idx = Math.floor(localY / itemHeight);
+      if (idx >= 0 && idx < options.length) {
+        setFocusIndex(idx);
+        menuFocusIndex = idx;
+        if (truncatedFlags[idx]) {
+          const pos = toCanvasPoint(e.clientX, e.clientY);
+          showTooltip(labels[idx], pos.x, pos.y);
+        } else {
+          hideTooltip();
+        }
+      } else {
+        setFocusIndex(-1);
+        hideTooltip();
+      }
     };
 
     if (menuWheelHandler) {

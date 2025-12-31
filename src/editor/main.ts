@@ -765,9 +765,7 @@ function makeVariantDropdown(
         setFocusIndex(idx);
         menuFocusIndex = idx;
       });
-      item.on('pointerout', () => {
-        setFocusIndex(-1);
-      });
+      item.on('pointerout', () => {});
       item.on('pointertap', () => {
         closeMenu();
         if (opt.id !== currentDescriptor.id) {

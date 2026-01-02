@@ -28,6 +28,7 @@ let uiLayer: Container;
 let currentDescriptor: BehaviorDescriptor;
 let selectedPath: number[] = [];
 let hasUnsavedChanges = false;
+let lastPointer = { x: -1, y: -1 };
 
 let paletteDragNode: BTNodeDef | null = null;
 let dragNode: { path: number[]; node: BTNodeDef } | null = null;
@@ -160,6 +161,11 @@ async function initPixi() {
     },
     { passive: false }
   );
+
+  window.addEventListener('pointermove', (e) => {
+    const pos = toCanvasPoint(e.clientX, e.clientY);
+    lastPointer = { x: pos.x, y: pos.y };
+  });
 
   window.addEventListener('keydown', (e) => {
     const tag = (e.target as HTMLElement | null)?.tagName?.toLowerCase() ?? '';
@@ -599,11 +605,16 @@ function makeVariantDropdown(
 ) {
   const container = new Container();
   container.position.set(x, y);
+  let dropdownHover = false;
 
   const bg = new Graphics();
-  bg.roundRect(0, 0, w, h, 10);
-  bg.fill({ color: 0x1a2030, alpha: 0.4 });
-  bg.stroke({ width: 1, color: 0x2a3343, alpha: 0.7 });
+  const drawDropdown = (focused: boolean) => {
+    bg.clear();
+    bg.roundRect(0, 0, w, h, 10);
+    bg.fill({ color: 0x1a2030, alpha: focused ? 0.55 : 0.4 });
+    bg.stroke({ width: 1, color: focused ? 0x5aa7ff : 0x2a3343, alpha: focused ? 0.9 : 0.7 });
+  };
+  drawDropdown(false);
   container.addChild(bg);
 
   const label = createBitmapTextNode(currentDescriptor.label ?? 'Variantes', {
@@ -655,6 +666,21 @@ function makeVariantDropdown(
     tooltip.visible = true;
   };
 
+  const syncHoverFromPointer = () => {
+    if (lastPointer.x < 0) return;
+    const bounds = container.getBounds();
+    dropdownHover =
+      lastPointer.x >= bounds.x &&
+      lastPointer.x <= bounds.x + bounds.width &&
+      lastPointer.y >= bounds.y &&
+      lastPointer.y <= bounds.y + bounds.height;
+    if (dropdownHover || menuOpen) {
+      drawDropdown(true);
+    } else {
+      drawDropdown(false);
+    }
+  };
+
   const itemHeight = 34;
   let menuWheelHandler: ((e: WheelEvent) => void) | null = null;
   let menuDragHandler: ((e: PointerEvent) => void) | null = null;
@@ -669,25 +695,27 @@ function makeVariantDropdown(
     const contentHeight = options.length * itemHeight + menuPad * 2 - 6;
     const maxMenuHeight = 320;
     const menuHeight = Math.min(contentHeight, maxMenuHeight);
+    menu.sortableChildren = true;
+    menu.eventMode = 'static';
+    menu.hitArea = new Rectangle(0, 0, w, menuHeight);
+
     const menuBg = new Graphics();
     menuBg.roundRect(0, 0, w, menuHeight, 12);
     menuBg.fill({ color: 0x0b0f18, alpha: 0.95 });
     menuBg.stroke({ width: 1, color: 0x1f2a3d, alpha: 0.7 });
-    menu.eventMode = 'static';
-    menu.hitArea = new Rectangle(0, 0, w, menuHeight);
-    menuBg.eventMode = 'static';
-    menuBg.on('pointerdown', (e) => {
-      e.stopPropagation();
-    });
+    menuBg.eventMode = 'none';
+    menuBg.zIndex = 0;
     menu.addChild(menuBg);
 
     const menuMask = new Graphics();
     menuMask.roundRect(0, 0, w, menuHeight, 12);
     menuMask.fill({ color: 0xffffff, alpha: 1 });
+    menuMask.eventMode = 'none';
     menu.addChild(menuMask);
 
     const menuContent = new Container();
     menuContent.mask = menuMask;
+    menuContent.zIndex = 2;
     menu.addChild(menuContent);
 
     let scrollY = 0;
@@ -711,6 +739,7 @@ function makeVariantDropdown(
       const ratio = scrollY / maxScroll;
       const available = trackInnerHeight - thumbHeight;
       thumb.y = trackInnerY + ratio * available;
+      thumb.hitArea = new Rectangle(0, 0, trackWidth, thumbHeight);
     };
 
     const applyScroll = () => {
@@ -815,20 +844,25 @@ function makeVariantDropdown(
 
     if (maxScroll > 0) {
       const track = new Graphics();
-      track.roundRect(trackX, trackPad, trackWidth, trackHeight, 3);
+      track.position.set(trackX, trackPad);
+      track.roundRect(0, 0, trackWidth, trackHeight, 3);
       track.fill({ color: 0x0b0f18, alpha: 0.9 });
       track.stroke({ width: 1, color: 0x1f2a3d, alpha: 0.6 });
       track.eventMode = 'static';
       track.cursor = 'pointer';
+      track.hitArea = new Rectangle(0, 0, trackWidth, trackHeight);
+      track.zIndex = 3;
       menu.addChild(track);
 
       thumb = new Graphics();
-      thumb.roundRect(trackX, 0, trackWidth, thumbHeight, 3);
+      thumb.position.set(trackX, trackInnerY);
+      thumb.roundRect(0, 0, trackWidth, thumbHeight, 3);
       thumb.fill({ color: 0x4da3ff, alpha: 0.8 });
       thumb.eventMode = 'static';
       thumb.cursor = 'pointer';
+      thumb.hitArea = new Rectangle(0, 0, trackWidth, thumbHeight);
+      thumb.zIndex = 4;
       menu.addChild(thumb);
-      thumb.y = trackInnerY;
       updateThumb();
 
       let dragging = false;
@@ -854,8 +888,8 @@ function makeVariantDropdown(
       };
 
       const onTrackDown = (e: PointerEvent) => {
-        const clickY = toLocalY(e);
-        setScrollFromThumb(clickY - thumbHeight / 2);
+        const clickY = toLocalY(e) - trackPad;
+        setScrollFromThumb(clickY - thumbHeight / 2 + trackInnerY);
       };
 
       const onDragMove = (e: PointerEvent) => {
@@ -932,8 +966,8 @@ function makeVariantDropdown(
           const opt = opts[menuFocusIndex];
           closeMenu();
           if (opt.id !== currentDescriptor.id) requestVariantSwitch(opt.id);
+          return;
         }
-        return;
       }
       const dir = e.key === 'ArrowDown' ? 1 : -1;
       const next = Math.max(0, Math.min(options.length - 1, menuFocusIndex + dir));
@@ -1001,6 +1035,7 @@ function makeVariantDropdown(
   const closeMenu = () => {
     menu.visible = false;
     menuOpen = false;
+    syncHoverFromPointer();
     if (outsideHandler) {
       window.removeEventListener('pointerdown', outsideHandler);
       outsideHandler = null;
@@ -1041,10 +1076,13 @@ function makeVariantDropdown(
     }
   };
 
-  const openMenu = () => {
+  const openMenu = (e?: any) => {
     if (menuOpen) {
       closeMenu();
       return;
+    }
+    if (e?.global) {
+      drawDropdown(true);
     }
     menu.visible = true;
     menuOpen = true;
@@ -1071,8 +1109,19 @@ function makeVariantDropdown(
   [bg, label, caret].forEach((sprite) => {
     sprite.eventMode = 'static';
     sprite.cursor = 'pointer';
-    sprite.on('pointertap', openMenu);
+    sprite.on('pointertap', (evt) => openMenu(evt));
   });
+
+  bg.eventMode = 'static';
+  bg.on('pointerover', () => {
+    dropdownHover = true;
+    drawDropdown(true);
+  });
+  bg.on('pointerout', () => {
+    dropdownHover = false;
+    if (!menuOpen) drawDropdown(false);
+  });
+
 
   if (labelTruncated) {
     label.eventMode = 'static';
@@ -1084,6 +1133,26 @@ function makeVariantDropdown(
     label.on('pointermove', follow);
     label.on('pointerout', hideTooltip);
   }
+  label.on('pointerover', () => {
+    dropdownHover = true;
+    drawDropdown(true);
+  });
+  label.on('pointerout', () => {
+    dropdownHover = false;
+    if (!menuOpen) drawDropdown(false);
+  });
+
+  caret.eventMode = 'static';
+  caret.on('pointerover', () => {
+    dropdownHover = true;
+    drawDropdown(true);
+  });
+  caret.on('pointerout', () => {
+    dropdownHover = false;
+    if (!menuOpen) drawDropdown(false);
+  });
+
+  syncHoverFromPointer();
 
   return container;
 }

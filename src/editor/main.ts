@@ -608,14 +608,6 @@ function makeVariantDropdown(
   let dropdownHover = false;
 
   const bg = new Graphics();
-  const drawDropdown = (focused: boolean) => {
-    bg.clear();
-    bg.roundRect(0, 0, w, h, 10);
-    bg.fill({ color: 0x1a2030, alpha: focused ? 0.55 : 0.4 });
-    bg.stroke({ width: 1, color: focused ? 0x5aa7ff : 0x2a3343, alpha: focused ? 0.9 : 0.7 });
-  };
-  drawDropdown(false);
-  container.addChild(bg);
 
   const label = createBitmapTextNode(currentDescriptor.label ?? 'Variantes', {
     fill: 0xdfe8ff,
@@ -630,12 +622,24 @@ function makeVariantDropdown(
   const caret = new Graphics();
   const caretX = w - 24;
   const caretY = h / 2 - 2;
-  caret.moveTo(caretX, caretY);
-  caret.lineTo(caretX + 12, caretY);
-  caret.lineTo(caretX + 6, caretY + 8);
-  caret.lineTo(caretX, caretY);
-  caret.fill({ color: 0x9ab4e4, alpha: 0.9 });
-  container.addChild(caret);
+  const drawCaret = (focused: boolean) => {
+    caret.clear();
+    caret.moveTo(caretX, caretY);
+    caret.lineTo(caretX + 12, caretY);
+    caret.lineTo(caretX + 6, caretY + 8);
+    caret.lineTo(caretX, caretY);
+    caret.fill({ color: focused ? 0x5aa7ff : 0x9ab4e4, alpha: 0.9 });
+  };
+
+  const drawDropdown = (focused: boolean) => {
+    bg.clear();
+    bg.roundRect(0, 0, w, h, 10);
+    bg.fill({ color: 0x1a2030, alpha: focused ? 0.55 : 0.4 });
+    bg.stroke({ width: 1, color: focused ? 0x5aa7ff : 0x2a3343, alpha: focused ? 0.9 : 0.7 });
+    drawCaret(focused);
+  };
+  drawDropdown(false);
+  container.addChild(bg, label, caret);
 
   const menu = new Container();
   menu.position.set(0, h + 6);

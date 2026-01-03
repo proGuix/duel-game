@@ -1225,8 +1225,11 @@ function makeVariantDropdown(
 
   if (dropdownShowClosedTooltip && dropdownHasFocus && !dropdownMenuOpen) {
     if (labelTruncated) {
-      const bounds = label.getBounds();
-      showTooltip(labelFull, bounds.x, bounds.y);
+      const bounds = container.getBounds();
+      const tooltipX = bounds.x + 8;
+      const tooltipY = bounds.y + bounds.height * 0.75;
+      showTooltip(labelFull, tooltipX, tooltipY);
+      tooltip.position.set(tooltipX, tooltipY);
     } else {
       hideTooltip();
     }

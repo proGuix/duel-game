@@ -7,7 +7,8 @@ import {
   Assets,
   Texture,
   type TextStyleFontWeight,
-  Rectangle
+  Rectangle,
+  type Bounds
 } from 'pixi.js';
 import {
   ensureBehaviorRegistry,
@@ -29,6 +30,9 @@ let currentDescriptor: BehaviorDescriptor;
 let selectedPath: number[] = [];
 let hasUnsavedChanges = false;
 let lastPointer = { x: -1, y: -1 };
+let dropdownHasFocus = false;
+let dropdownMenuOpen = false;
+let dropdownBounds: Bounds | null = null;
 
 let paletteDragNode: BTNodeDef | null = null;
 let dragNode: { path: number[]; node: BTNodeDef } | null = null;
@@ -165,11 +169,35 @@ async function initPixi() {
   window.addEventListener('pointermove', (e) => {
     const pos = toCanvasPoint(e.clientX, e.clientY);
     lastPointer = { x: pos.x, y: pos.y };
+    if (!dropdownMenuOpen && dropdownBounds) {
+      const inside =
+        pos.x >= dropdownBounds.x &&
+        pos.x <= dropdownBounds.x + dropdownBounds.width &&
+        pos.y >= dropdownBounds.y &&
+        pos.y <= dropdownBounds.y + dropdownBounds.height;
+      if (inside !== dropdownHasFocus) {
+        dropdownHasFocus = inside;
+        renderUI();
+      }
+    }
   });
 
   window.addEventListener('keydown', (e) => {
     const tag = (e.target as HTMLElement | null)?.tagName?.toLowerCase() ?? '';
     if (['input', 'textarea', 'select'].includes(tag)) return;
+    if (!dropdownMenuOpen && dropdownHasFocus && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+      e.preventDefault();
+      const options = listBehaviorOptions();
+      const currentIndex = options.findIndex((o) => o.id === currentDescriptor.id);
+      if (currentIndex < 0) return;
+      const dir = e.key === 'ArrowDown' ? 1 : -1;
+      const nextIndex = Math.max(0, Math.min(options.length - 1, currentIndex + dir));
+      const next = options[nextIndex];
+      if (next && next.id !== currentDescriptor.id) {
+        requestVariantSwitch(next.id);
+      }
+      return;
+    }
     if ((e.key === 'Delete' || e.key === 'Backspace') && selectedPath.length > 0) {
       e.preventDefault();
       removeNode(selectedPath);
@@ -209,6 +237,7 @@ function renderUI() {
 
   const variantDropdown = makeVariantDropdown(xCursor, yBtn, dropdownWidth, itemHeight);
   uiLayer.addChild(variantDropdown);
+  dropdownBounds = variantDropdown.getBounds();
   xCursor += dropdownWidth + controlBtnGap;
 
   const controls = [
@@ -606,6 +635,7 @@ function makeVariantDropdown(
   const container = new Container();
   container.position.set(x, y);
   let dropdownHover = false;
+  dropdownHover = dropdownHasFocus;
 
   const bg = new Graphics();
 
@@ -638,7 +668,7 @@ function makeVariantDropdown(
     bg.stroke({ width: 1, color: focused ? 0x5aa7ff : 0x2a3343, alpha: focused ? 0.9 : 0.7 });
     drawCaret(focused);
   };
-  drawDropdown(false);
+  drawDropdown(dropdownHasFocus || dropdownMenuOpen);
   container.addChild(bg, label, caret);
 
   const menu = new Container();
@@ -670,6 +700,17 @@ function makeVariantDropdown(
     tooltip.visible = true;
   };
 
+  const updateFocusFromPoint = (px: number, py: number) => {
+    const bounds = container.getBounds();
+    const inside =
+      px >= bounds.x &&
+      px <= bounds.x + bounds.width &&
+      py >= bounds.y &&
+      py <= bounds.y + bounds.height;
+    dropdownHasFocus = inside || menuOpen;
+    drawDropdown(dropdownHasFocus);
+  };
+
   const syncHoverFromPointer = () => {
     if (lastPointer.x < 0) return;
     const bounds = container.getBounds();
@@ -678,11 +719,9 @@ function makeVariantDropdown(
       lastPointer.x <= bounds.x + bounds.width &&
       lastPointer.y >= bounds.y &&
       lastPointer.y <= bounds.y + bounds.height;
-    if (dropdownHover || menuOpen) {
-      drawDropdown(true);
-    } else {
-      drawDropdown(false);
-    }
+    dropdownHasFocus = dropdownHover || menuOpen;
+    dropdownMenuOpen = menuOpen;
+    drawDropdown(dropdownHasFocus);
   };
 
   const itemHeight = 34;
@@ -1039,6 +1078,7 @@ function makeVariantDropdown(
   const closeMenu = () => {
     menu.visible = false;
     menuOpen = false;
+    dropdownMenuOpen = false;
     syncHoverFromPointer();
     if (outsideHandler) {
       window.removeEventListener('pointerdown', outsideHandler);
@@ -1090,6 +1130,7 @@ function makeVariantDropdown(
     }
     menu.visible = true;
     menuOpen = true;
+    dropdownMenuOpen = true;
     rebuildMenu();
     outsideHandler = handleOutside;
     window.addEventListener('pointerdown', outsideHandler, { capture: true });
@@ -1119,11 +1160,13 @@ function makeVariantDropdown(
   bg.eventMode = 'static';
   bg.on('pointerover', () => {
     dropdownHover = true;
+    dropdownHasFocus = true;
     drawDropdown(true);
   });
-  bg.on('pointerout', () => {
+  bg.on('pointerout', (e: any) => {
     dropdownHover = false;
-    if (!menuOpen) drawDropdown(false);
+    const pos = e.global ?? { x: 0, y: 0 };
+    updateFocusFromPoint(pos.x, pos.y);
   });
 
 
@@ -1139,21 +1182,25 @@ function makeVariantDropdown(
   }
   label.on('pointerover', () => {
     dropdownHover = true;
+    dropdownHasFocus = true;
     drawDropdown(true);
   });
-  label.on('pointerout', () => {
+  label.on('pointerout', (e: any) => {
     dropdownHover = false;
-    if (!menuOpen) drawDropdown(false);
+    const pos = e.global ?? { x: 0, y: 0 };
+    updateFocusFromPoint(pos.x, pos.y);
   });
 
   caret.eventMode = 'static';
   caret.on('pointerover', () => {
     dropdownHover = true;
+    dropdownHasFocus = true;
     drawDropdown(true);
   });
-  caret.on('pointerout', () => {
+  caret.on('pointerout', (e: any) => {
     dropdownHover = false;
-    if (!menuOpen) drawDropdown(false);
+    const pos = e.global ?? { x: 0, y: 0 };
+    updateFocusFromPoint(pos.x, pos.y);
   });
 
   syncHoverFromPointer();

@@ -1046,14 +1046,14 @@ function makeVariantDropdown(
       if (!menu.visible) return;
       const { x: px, y: py } = toCanvasPoint(e.clientX, e.clientY);
       const local = menu.toLocal({ x: e.clientX, y: e.clientY });
-      const labelBounds = label.getBounds();
-      const overLabel =
-        px >= labelBounds.x &&
-        px <= labelBounds.x + labelBounds.width &&
-        py >= labelBounds.y &&
-        py <= labelBounds.y + labelBounds.height;
+      const fieldBounds = container.getBounds();
+      const overField =
+        px >= fieldBounds.x &&
+        px <= fieldBounds.x + fieldBounds.width &&
+        py >= fieldBounds.y &&
+        py <= fieldBounds.y + fieldBounds.height;
       if (local.x < 0 || local.x > w || local.y < 0 || local.y > menuHeight) {
-        if (overLabel && labelTruncated) {
+        if (overField && labelTruncated) {
           showTooltip(labelFull, px, py);
         } else {
           hideTooltip();
@@ -1111,13 +1111,13 @@ function makeVariantDropdown(
       menuPointerMoveHandler = null;
     }
     if (labelTruncated && lastPointer.x >= 0) {
-      const bounds = label.getBounds();
-      const overLabel =
+      const bounds = container.getBounds();
+      const overField =
         lastPointer.x >= bounds.x &&
         lastPointer.x <= bounds.x + bounds.width &&
         lastPointer.y >= bounds.y &&
         lastPointer.y <= bounds.y + bounds.height;
-      if (overLabel) {
+      if (overField) {
         showTooltip(labelFull, lastPointer.x, lastPointer.y);
       } else {
         hideTooltip();
@@ -1178,16 +1178,25 @@ function makeVariantDropdown(
   });
 
   bg.eventMode = 'static';
-  bg.on('pointerover', () => {
+  const showFieldTooltip = (e: any) => {
+    if (!labelTruncated) return;
+    const pos = e.global ?? { x: 0, y: 0 };
+    showTooltip(labelFull, pos.x, pos.y);
+  };
+  const onFieldOver = (e: any) => {
     dropdownHover = true;
     dropdownHasFocus = true;
     drawDropdown(true);
-  });
-  bg.on('pointerout', (e: any) => {
+    showFieldTooltip(e);
+  };
+  const onFieldOut = (e: any) => {
     dropdownHover = false;
     const pos = e.global ?? { x: 0, y: 0 };
     updateFocusFromPoint(pos.x, pos.y);
-  });
+    hideTooltip();
+  };
+  bg.on('pointerover', onFieldOver);
+  bg.on('pointerout', onFieldOut);
 
 
   if (labelTruncated) {
@@ -1200,28 +1209,12 @@ function makeVariantDropdown(
     label.on('pointermove', follow);
     label.on('pointerout', hideTooltip);
   }
-  label.on('pointerover', () => {
-    dropdownHover = true;
-    dropdownHasFocus = true;
-    drawDropdown(true);
-  });
-  label.on('pointerout', (e: any) => {
-    dropdownHover = false;
-    const pos = e.global ?? { x: 0, y: 0 };
-    updateFocusFromPoint(pos.x, pos.y);
-  });
+  label.on('pointerover', onFieldOver);
+  label.on('pointerout', onFieldOut);
 
   caret.eventMode = 'static';
-  caret.on('pointerover', () => {
-    dropdownHover = true;
-    dropdownHasFocus = true;
-    drawDropdown(true);
-  });
-  caret.on('pointerout', (e: any) => {
-    dropdownHover = false;
-    const pos = e.global ?? { x: 0, y: 0 };
-    updateFocusFromPoint(pos.x, pos.y);
-  });
+  caret.on('pointerover', onFieldOver);
+  caret.on('pointerout', onFieldOut);
 
   if (dropdownShowClosedTooltip && dropdownHasFocus && !dropdownMenuOpen) {
     if (labelTruncated) {

@@ -987,9 +987,6 @@ function makeVariantDropdown(
         } else {
           hideTooltip();
         }
-      } else {
-        setFocusIndex(-1);
-        hideTooltip();
       }
     };
 

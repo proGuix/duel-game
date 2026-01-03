@@ -33,6 +33,7 @@ let lastPointer = { x: -1, y: -1 };
 let dropdownHasFocus = false;
 let dropdownMenuOpen = false;
 let dropdownBounds: Bounds | null = null;
+let dropdownShowClosedTooltip = false;
 
 let paletteDragNode: BTNodeDef | null = null;
 let dragNode: { path: number[]; node: BTNodeDef } | null = null;
@@ -179,6 +180,10 @@ async function initPixi() {
         dropdownHasFocus = inside;
         renderUI();
       }
+      if (dropdownShowClosedTooltip && !dropdownHasFocus) {
+        dropdownShowClosedTooltip = false;
+        renderUI();
+      }
     }
   });
 
@@ -194,6 +199,7 @@ async function initPixi() {
       const nextIndex = Math.max(0, Math.min(options.length - 1, currentIndex + dir));
       const next = options[nextIndex];
       if (next && next.id !== currentDescriptor.id) {
+        dropdownShowClosedTooltip = true;
         requestVariantSwitch(next.id);
       }
       return;
@@ -1104,7 +1110,21 @@ function makeVariantDropdown(
       window.removeEventListener('pointermove', menuPointerMoveHandler);
       menuPointerMoveHandler = null;
     }
-    hideTooltip();
+    if (labelTruncated && lastPointer.x >= 0) {
+      const bounds = label.getBounds();
+      const overLabel =
+        lastPointer.x >= bounds.x &&
+        lastPointer.x <= bounds.x + bounds.width &&
+        lastPointer.y >= bounds.y &&
+        lastPointer.y <= bounds.y + bounds.height;
+      if (overLabel) {
+        showTooltip(labelFull, lastPointer.x, lastPointer.y);
+      } else {
+        hideTooltip();
+      }
+    } else {
+      hideTooltip();
+    }
   };
 
   const handleOutside = (evt: PointerEvent) => {
@@ -1202,6 +1222,15 @@ function makeVariantDropdown(
     const pos = e.global ?? { x: 0, y: 0 };
     updateFocusFromPoint(pos.x, pos.y);
   });
+
+  if (dropdownShowClosedTooltip && dropdownHasFocus && !dropdownMenuOpen) {
+    if (labelTruncated) {
+      const bounds = label.getBounds();
+      showTooltip(labelFull, bounds.x, bounds.y);
+    } else {
+      hideTooltip();
+    }
+  }
 
   syncHoverFromPointer();
 

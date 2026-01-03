@@ -987,6 +987,8 @@ function makeVariantDropdown(
         } else {
           hideTooltip();
         }
+      } else {
+        hideTooltip();
       }
     };
 

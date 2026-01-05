@@ -938,12 +938,14 @@ function makeVariantDropdown(
         const t = focused ? 1 : hoverT;
         btnBg.clear();
         btnBg.roundRect(0, 0, w - 8 - itemRightPad, itemHeight - 6, 8);
-        const fillColor = lerpColor(0x141a28, 0x2b3a56, t);
-        const fillAlpha = lerp(0.5, 0.9, t);
-        const strokeColor = lerpColor(0x1f2a3d, 0x5aa7ff, t);
-        const strokeAlpha = lerp(0.6, 0.9, t);
-        btnBg.fill({ color: fillColor, alpha: fillAlpha });
-        btnBg.stroke({ width: 1, color: strokeColor, alpha: strokeAlpha });
+        if (t > 0) {
+          const fillColor = lerpColor(menuBgColor, 0x2b3a56, t);
+          const fillAlpha = lerp(0.0, 0.9, t);
+          const strokeColor = lerpColor(menuBgColor, 0x5aa7ff, t);
+          const strokeAlpha = lerp(0.0, 0.9, t);
+          btnBg.fill({ color: fillColor, alpha: fillAlpha });
+          btnBg.stroke({ width: 1, color: strokeColor, alpha: strokeAlpha });
+        }
         item.x = baseX + hoverT * 3;
       };
       const animateHover = () => {

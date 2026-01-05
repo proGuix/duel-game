@@ -37,6 +37,39 @@ let openVariantMenu: (() => void) | null = null;
 let closeVariantMenu: (() => void) | null = null;
 let dropdownShowClosedTooltip = false;
 
+const caretAnimState = {
+  angle: 0,
+  target: 0,
+  animating: false,
+  rafId: 0,
+  draw: null as null | (() => void)
+};
+
+const caretAnimSpeed = 0.25;
+
+const tickCaret = () => {
+  if (!caretAnimState.animating) return;
+  const delta = caretAnimState.target - caretAnimState.angle;
+  if (Math.abs(delta) <= 0.01) {
+    caretAnimState.angle = caretAnimState.target;
+    caretAnimState.animating = false;
+  } else {
+    caretAnimState.angle += delta * caretAnimSpeed;
+  }
+  if (caretAnimState.draw) caretAnimState.draw();
+  if (caretAnimState.animating) {
+    caretAnimState.rafId = requestAnimationFrame(tickCaret);
+  }
+};
+
+const setCaretTarget = (open: boolean) => {
+  caretAnimState.target = open ? Math.PI : 0;
+  if (!caretAnimState.animating) {
+    caretAnimState.animating = true;
+    caretAnimState.rafId = requestAnimationFrame(tickCaret);
+  }
+};
+
 let paletteDragNode: BTNodeDef | null = null;
 let dragNode: { path: number[]; node: BTNodeDef } | null = null;
 let ghostContainer: Container | null = null;
@@ -673,11 +706,8 @@ function makeVariantDropdown(
   const caretHeight = 8;
   const caretCenterX = caretX + 6;
   const caretCenterY = caretY + caretHeight / 2;
-  let caretAngle = 0;
-  let caretTargetAngle = 0;
-  let caretAnimActive = false;
-  const caretSpeed = 0.25;
   const drawCaret = (focused: boolean) => {
+    const caretAngle = caretAnimState.angle;
     caret.clear();
     caret.moveTo(caretX, caretY);
     caret.lineTo(caretX + 12, caretY);
@@ -689,29 +719,6 @@ function makeVariantDropdown(
     caret.rotation = caretAngle;
   };
 
-  const animateCaret = () => {
-    if (!caretAnimActive) return;
-    const delta = caretTargetAngle - caretAngle;
-    if (Math.abs(delta) <= 0.01) {
-      caretAngle = caretTargetAngle;
-      caretAnimActive = false;
-    } else {
-      caretAngle += delta * caretSpeed;
-    }
-    drawCaret(dropdownHasFocus || dropdownMenuOpen);
-    if (caretAnimActive) {
-      requestAnimationFrame(animateCaret);
-    }
-  };
-
-  const setCaretOpen = (open: boolean) => {
-    caretTargetAngle = open ? Math.PI : 0;
-    if (!caretAnimActive) {
-      caretAnimActive = true;
-      requestAnimationFrame(animateCaret);
-    }
-  };
-
   const drawDropdown = (focused: boolean) => {
     bg.clear();
     bg.roundRect(0, 0, w, h, 10);
@@ -719,7 +726,8 @@ function makeVariantDropdown(
     bg.stroke({ width: 1, color: focused ? 0x5aa7ff : 0x2a3343, alpha: focused ? 0.9 : 0.7 });
     drawCaret(focused);
   };
-  setCaretOpen(dropdownMenuOpen);
+  caretAnimState.draw = () => drawCaret(dropdownHasFocus || dropdownMenuOpen);
+  setCaretTarget(dropdownMenuOpen);
   drawDropdown(dropdownHasFocus || dropdownMenuOpen);
   container.addChild(bg, label, caret);
 
@@ -1134,7 +1142,7 @@ function makeVariantDropdown(
     menu.visible = false;
     menuOpen = false;
     dropdownMenuOpen = false;
-    setCaretOpen(false);
+    setCaretTarget(false);
     syncHoverFromPointer();
     if (outsideHandler) {
       window.removeEventListener('pointerdown', outsideHandler, { capture: true } as AddEventListenerOptions);
@@ -1201,7 +1209,7 @@ function makeVariantDropdown(
     menu.visible = true;
     menuOpen = true;
     dropdownMenuOpen = true;
-    setCaretOpen(true);
+    setCaretTarget(true);
     rebuildMenu();
     outsideHandler = handleOutside;
     window.addEventListener('pointerdown', outsideHandler, { capture: true });

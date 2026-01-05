@@ -879,7 +879,9 @@ function makeVariantDropdown(
     const labels: string[] = [];
     let selectedIndex = -1;
     let focusedIndex = -1;
-    const itemX = 4;
+    const itemInset = 4;
+    const itemInnerHeight = itemHeight - 6;
+    const itemX = itemInset;
     const itemWidth = w - 8 - itemRightPad;
 
     const hitItemIndex = (localX: number, localY: number) => {
@@ -888,7 +890,7 @@ function makeVariantDropdown(
       if (offsetY < 0) return -1;
       const idx = Math.floor(offsetY / itemHeight);
       const itemTop = menuPad + idx * itemHeight;
-      const itemBottom = itemTop + (itemHeight - 6);
+      const itemBottom = itemTop + itemInnerHeight;
       if (idx < 0 || idx >= options.length) return -1;
       if (localY < itemTop || localY > itemBottom) return -1;
       return idx;
@@ -914,8 +916,7 @@ function makeVariantDropdown(
 
     options.forEach((opt, idx) => {
       const item = new Container();
-      const baseX = 4;
-      item.position.set(baseX, menuPad + idx * itemHeight);
+      item.position.set(0, menuPad + idx * itemHeight);
       const isCurrent = opt.id === currentDescriptor.id;
       const btnBg = new Graphics();
       let hoverT = 0;
@@ -937,7 +938,7 @@ function makeVariantDropdown(
       const drawItemBg = (focused: boolean) => {
         const t = focused ? 1 : hoverT;
         btnBg.clear();
-        btnBg.roundRect(0, 0, w - 8 - itemRightPad, itemHeight - 6, 8);
+        btnBg.roundRect(0, 0, w - 8 - itemRightPad, itemInnerHeight, 8);
         if (t > 0) {
           const fillColor = lerpColor(menuBgColor, 0x2b3a56, t);
           const fillAlpha = lerp(0.0, 0.9, t);
@@ -946,7 +947,8 @@ function makeVariantDropdown(
           btnBg.fill({ color: fillColor, alpha: fillAlpha });
           btnBg.stroke({ width: 1, color: strokeColor, alpha: strokeAlpha });
         }
-        item.x = baseX + hoverT * 3;
+        btnBg.x = itemInset;
+        item.x = hoverT * 3;
       };
       const animateHover = () => {
         const delta = hoverTarget - hoverT;
@@ -972,13 +974,24 @@ function makeVariantDropdown(
       item.addChild(btnBg);
 
       const txt = createBitmapTextNode(opt.label, { fill: 0xdfe8ff, fontSize: 13, fontWeight: '500' });
-      txt.position.set(10, (itemHeight - 6 - txt.height) / 2);
+      const markerWidth = 2;
+      const textX = 10;
+      txt.position.set(textX, (itemInnerHeight - txt.height) / 2);
       const truncated = applyEllipsis(txt, opt.label, w - 40 - itemRightPad);
       truncatedFlags[idx] = truncated;
       labels[idx] = opt.label;
       item.addChild(txt);
 
       if (isCurrent) selectedIndex = idx;
+      if (isCurrent) {
+        const marker = new Graphics();
+        const markerY = menuPad + idx * itemHeight;
+        const markerH = itemInnerHeight;
+        marker.roundRect(0, markerY, markerWidth, markerH, 2);
+        marker.fill({ color: 0x8bb9ff, alpha: 0.9 });
+        marker.eventMode = 'none';
+        menuContent.addChild(marker);
+      }
 
       item.eventMode = 'static';
       item.cursor = 'pointer';

@@ -856,6 +856,7 @@ function makeVariantDropdown(
     applyScroll();
 
     const drawFns: Array<(focused: boolean) => void> = [];
+    const hoverSetters: Array<(t: number) => void> = [];
     const truncatedFlags: boolean[] = [];
     const labels: string[] = [];
     let selectedIndex = -1;
@@ -877,6 +878,7 @@ function makeVariantDropdown(
 
     const setFocusIndex = (nextIndex: number) => {
       if (focusedIndex === nextIndex) return;
+      const prevIndex = focusedIndex;
       if (focusedIndex >= 0 && drawFns[focusedIndex]) {
         drawFns[focusedIndex](false);
       }
@@ -884,24 +886,67 @@ function makeVariantDropdown(
       if (focusedIndex >= 0 && drawFns[focusedIndex]) {
         drawFns[focusedIndex](true);
       }
+      if (prevIndex >= 0 && hoverSetters[prevIndex]) {
+        hoverSetters[prevIndex](0);
+      }
+      if (focusedIndex >= 0 && hoverSetters[focusedIndex]) {
+        hoverSetters[focusedIndex](1);
+      }
     };
 
     options.forEach((opt, idx) => {
       const item = new Container();
-      item.position.set(4, menuPad + idx * itemHeight);
+      const baseX = 4;
+      item.position.set(baseX, menuPad + idx * itemHeight);
       const isCurrent = opt.id === currentDescriptor.id;
       const btnBg = new Graphics();
+      let hoverT = 0;
+      let hoverTarget = 0;
+      let hoverRaf = 0;
+      const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+      const lerpColor = (a: number, b: number, t: number) => {
+        const ar = (a >> 16) & 0xff;
+        const ag = (a >> 8) & 0xff;
+        const ab = a & 0xff;
+        const br = (b >> 16) & 0xff;
+        const bg = (b >> 8) & 0xff;
+        const bb = b & 0xff;
+        const rr = Math.round(lerp(ar, br, t));
+        const rg = Math.round(lerp(ag, bg, t));
+        const rb = Math.round(lerp(ab, bb, t));
+        return (rr << 16) | (rg << 8) | rb;
+      };
       const drawItemBg = (focused: boolean) => {
+        const t = focused ? 1 : hoverT;
         btnBg.clear();
         btnBg.roundRect(0, 0, w - 8 - itemRightPad, itemHeight - 6, 8);
-        if (focused) {
-          btnBg.fill({ color: 0x2b3a56, alpha: 0.9 });
-          btnBg.stroke({ width: 1, color: 0x5aa7ff, alpha: 0.9 });
+        const fillColor = lerpColor(0x141a28, 0x2b3a56, t);
+        const fillAlpha = lerp(0.5, 0.9, t);
+        const strokeColor = lerpColor(0x1f2a3d, 0x5aa7ff, t);
+        const strokeAlpha = lerp(0.6, 0.9, t);
+        btnBg.fill({ color: fillColor, alpha: fillAlpha });
+        btnBg.stroke({ width: 1, color: strokeColor, alpha: strokeAlpha });
+        item.x = baseX + hoverT * 3;
+      };
+      const animateHover = () => {
+        const delta = hoverTarget - hoverT;
+        if (Math.abs(delta) <= 0.01) {
+          hoverT = hoverTarget;
+          hoverRaf = 0;
+          drawItemBg(menuFocusIndex === idx);
           return;
         }
-        btnBg.fill({ color: 0x141a28, alpha: 0.5 });
-        btnBg.stroke({ width: 1, color: 0x1f2a3d, alpha: 0.6 });
+        hoverT += delta * 0.25;
+        drawItemBg(menuFocusIndex === idx);
+        hoverRaf = requestAnimationFrame(animateHover);
       };
+      const setHover = (next: number) => {
+        hoverTarget = next;
+        if (!hoverRaf) {
+          hoverRaf = requestAnimationFrame(animateHover);
+        }
+      };
+      hoverSetters[idx] = setHover;
       drawItemBg(false);
       drawFns[idx] = drawItemBg;
       item.addChild(btnBg);

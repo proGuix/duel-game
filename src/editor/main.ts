@@ -6,6 +6,7 @@ import {
   Sprite,
   Assets,
   Texture,
+  BlurFilter,
   type TextStyleFontWeight,
   Rectangle,
   type Bounds
@@ -805,23 +806,40 @@ function makeVariantDropdown(
       e.stopPropagation();
     });
 
+    const menuRadius = 12;
+    const menuBgColor = 0x1b2232;
+    const menuShadow = new Graphics();
+    menuShadow.roundRect(-6, -4, w + 12, menuHeight + 12, menuRadius + 4);
+    menuShadow.fill({ color: 0x000000, alpha: 0.6 });
+    menuShadow.filters = [new BlurFilter(16)];
+    menuShadow.position.set(0, 6);
+    menuShadow.eventMode = 'none';
+    menuShadow.zIndex = 0;
+    menu.addChild(menuShadow);
+
     const menuBg = new Graphics();
-    menuBg.roundRect(0, 0, w, menuHeight, 12);
-    menuBg.fill({ color: 0x0b0f18, alpha: 0.95 });
-    menuBg.stroke({ width: 1, color: 0x1f2a3d, alpha: 0.7 });
+    menuBg.roundRect(0, 0, w, menuHeight, menuRadius);
+    menuBg.fill({ color: menuBgColor, alpha: 0.98 });
     menuBg.eventMode = 'none';
-    menuBg.zIndex = 0;
+    menuBg.zIndex = 1;
     menu.addChild(menuBg);
 
+    const menuGlow = new Graphics();
+    menuGlow.roundRect(1.5, 1.5, w - 3, menuHeight - 3, menuRadius - 2);
+    menuGlow.stroke({ width: 1, color: 0x6ea8ff, alpha: 0.08 });
+    menuGlow.eventMode = 'none';
+    menuGlow.zIndex = 2;
+    menu.addChild(menuGlow);
+
     const menuMask = new Graphics();
-    menuMask.roundRect(0, 0, w, menuHeight, 12);
+    menuMask.roundRect(0, 0, w, menuHeight, menuRadius);
     menuMask.fill({ color: 0xffffff, alpha: 1 });
     menuMask.eventMode = 'none';
     menu.addChild(menuMask);
 
     const menuContent = new Container();
     menuContent.mask = menuMask;
-    menuContent.zIndex = 2;
+    menuContent.zIndex = 3;
     menu.addChild(menuContent);
 
     let scrollY = 0;

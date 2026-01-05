@@ -670,13 +670,46 @@ function makeVariantDropdown(
   const caret = new Graphics();
   const caretX = w - 24;
   const caretY = h / 2 - 2;
+  const caretHeight = 8;
+  const caretCenterX = caretX + 6;
+  const caretCenterY = caretY + caretHeight / 2;
+  let caretAngle = 0;
+  let caretTargetAngle = 0;
+  let caretAnimActive = false;
+  const caretSpeed = 0.25;
   const drawCaret = (focused: boolean) => {
     caret.clear();
     caret.moveTo(caretX, caretY);
     caret.lineTo(caretX + 12, caretY);
-    caret.lineTo(caretX + 6, caretY + 8);
+    caret.lineTo(caretX + 6, caretY + caretHeight);
     caret.lineTo(caretX, caretY);
     caret.fill({ color: focused ? 0x5aa7ff : 0x9ab4e4, alpha: 0.9 });
+    caret.pivot.set(caretCenterX, caretCenterY);
+    caret.position.set(caretCenterX, caretCenterY);
+    caret.rotation = caretAngle;
+  };
+
+  const animateCaret = () => {
+    if (!caretAnimActive) return;
+    const delta = caretTargetAngle - caretAngle;
+    if (Math.abs(delta) <= 0.01) {
+      caretAngle = caretTargetAngle;
+      caretAnimActive = false;
+    } else {
+      caretAngle += delta * caretSpeed;
+    }
+    drawCaret(dropdownHasFocus || dropdownMenuOpen);
+    if (caretAnimActive) {
+      requestAnimationFrame(animateCaret);
+    }
+  };
+
+  const setCaretOpen = (open: boolean) => {
+    caretTargetAngle = open ? Math.PI : 0;
+    if (!caretAnimActive) {
+      caretAnimActive = true;
+      requestAnimationFrame(animateCaret);
+    }
   };
 
   const drawDropdown = (focused: boolean) => {
@@ -686,6 +719,7 @@ function makeVariantDropdown(
     bg.stroke({ width: 1, color: focused ? 0x5aa7ff : 0x2a3343, alpha: focused ? 0.9 : 0.7 });
     drawCaret(focused);
   };
+  setCaretOpen(dropdownMenuOpen);
   drawDropdown(dropdownHasFocus || dropdownMenuOpen);
   container.addChild(bg, label, caret);
 
@@ -1100,6 +1134,7 @@ function makeVariantDropdown(
     menu.visible = false;
     menuOpen = false;
     dropdownMenuOpen = false;
+    setCaretOpen(false);
     syncHoverFromPointer();
     if (outsideHandler) {
       window.removeEventListener('pointerdown', outsideHandler, { capture: true } as AddEventListenerOptions);
@@ -1166,6 +1201,7 @@ function makeVariantDropdown(
     menu.visible = true;
     menuOpen = true;
     dropdownMenuOpen = true;
+    setCaretOpen(true);
     rebuildMenu();
     outsideHandler = handleOutside;
     window.addEventListener('pointerdown', outsideHandler, { capture: true });

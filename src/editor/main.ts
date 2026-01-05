@@ -749,6 +749,7 @@ function makeVariantDropdown(
   let menuKeyHandler: ((e: KeyboardEvent) => void) | null = null;
   let menuPointerMoveHandler: ((e: PointerEvent) => void) | null = null;
   let menuFocusIndex = -1;
+  let menuPointerDownInside = false;
   const rebuildMenu = () => {
     menu.removeChildren();
     const options = listBehaviorOptions();
@@ -759,6 +760,13 @@ function makeVariantDropdown(
     menu.sortableChildren = true;
     menu.eventMode = 'static';
     menu.hitArea = new Rectangle(0, 0, w, menuHeight);
+    menu.on('pointerdown', (e) => {
+      menuPointerDownInside = true;
+      e.stopPropagation();
+    });
+    menu.on('pointerup', () => {
+      menuPointerDownInside = false;
+    });
 
     const menuBg = new Graphics();
     menuBg.roundRect(0, 0, w, menuHeight, 12);
@@ -943,12 +951,14 @@ function makeVariantDropdown(
       };
 
       const onThumbDown = (e: PointerEvent) => {
+        menuPointerDownInside = true;
         dragging = true;
         dragOffset = toLocalY(e) - (thumb?.y ?? 0);
         e.stopPropagation();
       };
 
       const onTrackDown = (e: PointerEvent) => {
+        menuPointerDownInside = true;
         const clickY = toLocalY(e) - trackPad;
         setScrollFromThumb(clickY - thumbHeight / 2 + trackInnerY);
       };
@@ -1097,9 +1107,10 @@ function makeVariantDropdown(
     menu.visible = false;
     menuOpen = false;
     dropdownMenuOpen = false;
+    menuPointerDownInside = false;
     syncHoverFromPointer();
     if (outsideHandler) {
-      window.removeEventListener('pointerdown', outsideHandler);
+      window.removeEventListener('pointerup', outsideHandler, { capture: true } as AddEventListenerOptions);
       outsideHandler = null;
     }
     if (menuWheelHandler) {
@@ -1140,6 +1151,10 @@ function makeVariantDropdown(
   };
 
   const handleOutside = (evt: PointerEvent) => {
+    if (menuPointerDownInside) {
+      menuPointerDownInside = false;
+      return;
+    }
     const { x: px, y: py } = toCanvasPoint(evt.clientX, evt.clientY);
     const bounds = container.getBounds();
     const menuBounds = menu.getBounds();
@@ -1163,9 +1178,10 @@ function makeVariantDropdown(
     menu.visible = true;
     menuOpen = true;
     dropdownMenuOpen = true;
+    menuPointerDownInside = false;
     rebuildMenu();
     outsideHandler = handleOutside;
-    window.addEventListener('pointerdown', outsideHandler, { capture: true });
+    window.addEventListener('pointerup', outsideHandler, { capture: true });
     if (menuWheelHandler) {
       window.addEventListener('wheel', menuWheelHandler, { capture: true, passive: false });
     }
@@ -1186,6 +1202,9 @@ function makeVariantDropdown(
   [bg, label, caret].forEach((sprite) => {
     sprite.eventMode = 'static';
     sprite.cursor = 'pointer';
+    sprite.on('pointerdown', () => {
+      menuPointerDownInside = true;
+    });
     sprite.on('pointertap', (evt) => openMenu(evt));
   });
 

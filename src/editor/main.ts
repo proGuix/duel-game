@@ -1024,6 +1024,7 @@ function makeVariantDropdown(
         const opts = listBehaviorOptions();
         if (menuFocusIndex >= 0 && menuFocusIndex < opts.length) {
           const opt = opts[menuFocusIndex];
+          dropdownShowClosedTooltip = true;
           closeMenu();
           if (opt.id !== currentDescriptor.id) requestVariantSwitch(opt.id);
           return;

@@ -33,6 +33,8 @@ let lastPointer = { x: -1, y: -1 };
 let dropdownHasFocus = false;
 let dropdownMenuOpen = false;
 let dropdownBounds: Bounds | null = null;
+let openVariantMenu: (() => void) | null = null;
+let closeVariantMenu: (() => void) | null = null;
 let dropdownShowClosedTooltip = false;
 
 let paletteDragNode: BTNodeDef | null = null;
@@ -202,6 +204,16 @@ async function initPixi() {
         dropdownShowClosedTooltip = true;
         requestVariantSwitch(next.id);
       }
+      return;
+    }
+    if (!dropdownMenuOpen && dropdownHasFocus && e.key === 'ArrowRight') {
+      e.preventDefault();
+      openVariantMenu?.();
+      return;
+    }
+    if (dropdownMenuOpen && e.key === 'ArrowLeft') {
+      e.preventDefault();
+      closeVariantMenu?.();
       return;
     }
     if ((e.key === 'Delete' || e.key === 'Backspace') && selectedPath.length > 0) {
@@ -1182,6 +1194,9 @@ function makeVariantDropdown(
     const pos = e.global ?? { x: 0, y: 0 };
     showTooltip(labelFull, pos.x, pos.y);
   };
+
+  openVariantMenu = () => openMenu();
+  closeVariantMenu = () => closeMenu();
   const onFieldOver = (e: any) => {
     dropdownHover = true;
     dropdownHasFocus = true;

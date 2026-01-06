@@ -1264,7 +1264,7 @@ function makeVariantDropdown(
       if (!menu.visible) return;
       const { x: px, y: py } = toCanvasPoint(e.clientX, e.clientY);
       const local = menu.toLocal({ x: e.clientX, y: e.clientY });
-      const fieldBounds = container.getBounds();
+      const fieldBounds = bg.getBounds();
       const overField =
         px >= fieldBounds.x &&
         px <= fieldBounds.x + fieldBounds.width &&

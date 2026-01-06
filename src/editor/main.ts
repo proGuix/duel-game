@@ -732,8 +732,8 @@ function makeVariantDropdown(
   drawDropdown(dropdownHasFocus || dropdownMenuOpen);
   container.addChild(bg, label, caret);
 
-  const menu = new Container();
-  menu.position.set(0, h + 6);
+    const menu = new Container();
+    menu.position.set(0, h + 6);
   menu.visible = false;
   container.addChild(menu);
 
@@ -808,9 +808,8 @@ function makeVariantDropdown(
 
     const menuRadius = 12;
     const menuBgColor = 0x1b2232;
+    const baseMenuWidth = w;
     const menuShadow = new Graphics();
-    menuShadow.roundRect(-6, -4, w + 12, menuHeight + 12, menuRadius + 4);
-    menuShadow.fill({ color: 0x000000, alpha: 0.6 });
     menuShadow.filters = [new BlurFilter(16)];
     menuShadow.position.set(0, 6);
     menuShadow.eventMode = 'none';
@@ -818,24 +817,34 @@ function makeVariantDropdown(
     menu.addChild(menuShadow);
 
     const menuBg = new Graphics();
-    menuBg.roundRect(0, 0, w, menuHeight, menuRadius);
-    menuBg.fill({ color: menuBgColor, alpha: 0.98 });
     menuBg.eventMode = 'none';
     menuBg.zIndex = 1;
     menu.addChild(menuBg);
 
     const menuGlow = new Graphics();
-    menuGlow.roundRect(1.5, 1.5, w - 3, menuHeight - 3, menuRadius - 2);
-    menuGlow.stroke({ width: 1, color: 0x6ea8ff, alpha: 0.08 });
     menuGlow.eventMode = 'none';
     menuGlow.zIndex = 2;
     menu.addChild(menuGlow);
 
     const menuMask = new Graphics();
-    menuMask.roundRect(0, 0, w, menuHeight, menuRadius);
-    menuMask.fill({ color: 0xffffff, alpha: 1 });
     menuMask.eventMode = 'none';
     menu.addChild(menuMask);
+
+    const redrawMenuChrome = (menuWidth: number) => {
+      menuShadow.clear();
+      menuShadow.roundRect(-6, -4, menuWidth + 12, menuHeight + 12, menuRadius + 4);
+      menuShadow.fill({ color: 0x000000, alpha: 0.6 });
+      menuBg.clear();
+      menuBg.roundRect(0, 0, menuWidth, menuHeight, menuRadius);
+      menuBg.fill({ color: menuBgColor, alpha: 0.98 });
+      menuGlow.clear();
+      menuGlow.roundRect(1.5, 1.5, menuWidth - 3, menuHeight - 3, menuRadius - 2);
+      menuGlow.stroke({ width: 1, color: 0x6ea8ff, alpha: 0.08 });
+      menuMask.clear();
+      menuMask.roundRect(0, 0, menuWidth, menuHeight, menuRadius);
+      menuMask.fill({ color: 0xffffff, alpha: 1 });
+    };
+    redrawMenuChrome(w);
 
     const menuContent = new Container();
     menuContent.mask = menuMask;
@@ -846,10 +855,15 @@ function makeVariantDropdown(
     const maxScroll = Math.max(0, contentHeight - menuHeight);
     const itemRightPad = maxScroll > 0 ? 14 : 0;
     let thumb: Graphics | null = null;
-    const trackWidth = 4;
+    const trackBaseWidth = 4;
+    const trackHoverWidth = 8;
+    let trackWidth = trackBaseWidth;
+    let trackX = 0;
+    let trackTarget = trackBaseWidth;
+    let trackRaf = 0;
     const trackPad = 6;
     const trackInset = 1;
-    const trackX = w - trackWidth - 4;
+    const trackRightInset = 4;
     const trackHeight = Math.max(0, menuHeight - trackPad * 2);
     const trackInnerY = trackPad + trackInset;
     const trackInnerHeight = Math.max(0, trackHeight - trackInset * 2);
@@ -883,6 +897,10 @@ function makeVariantDropdown(
     const itemInnerHeight = itemHeight - 6;
     const itemX = itemInset;
     const itemWidth = w - 8 - itemRightPad;
+    const markerWidth = 2;
+    const hoverShift = 3;
+    const hoverEpsilon = 0.01;
+    const hoverSpeed = 0.25;
 
     const hitItemIndex = (localX: number, localY: number) => {
       if (localX < itemX || localX > itemX + itemWidth) return -1;
@@ -948,17 +966,17 @@ function makeVariantDropdown(
           btnBg.stroke({ width: 1, color: strokeColor, alpha: strokeAlpha });
         }
         btnBg.x = itemInset;
-        item.x = hoverT * 3;
+        item.x = hoverT * hoverShift;
       };
       const animateHover = () => {
         const delta = hoverTarget - hoverT;
-        if (Math.abs(delta) <= 0.01) {
+        if (Math.abs(delta) <= hoverEpsilon) {
           hoverT = hoverTarget;
           hoverRaf = 0;
           drawItemBg(menuFocusIndex === idx);
           return;
         }
-        hoverT += delta * 0.25;
+        hoverT += delta * hoverSpeed;
         drawItemBg(menuFocusIndex === idx);
         hoverRaf = requestAnimationFrame(animateHover);
       };
@@ -974,7 +992,6 @@ function makeVariantDropdown(
       item.addChild(btnBg);
 
       const txt = createBitmapTextNode(opt.label, { fill: 0xdfe8ff, fontSize: 13, fontWeight: '500' });
-      const markerWidth = 2;
       const textX = 10;
       txt.position.set(textX, (itemInnerHeight - txt.height) / 2);
       const truncated = applyEllipsis(txt, opt.label, w - 40 - itemRightPad);
@@ -1028,26 +1045,63 @@ function makeVariantDropdown(
 
     if (maxScroll > 0) {
       const track = new Graphics();
-      track.position.set(trackX, trackPad);
-      track.roundRect(0, 0, trackWidth, trackHeight, 3);
-      track.fill({ color: 0x0b0f18, alpha: 0.9 });
-      track.stroke({ width: 1, color: 0x1f2a3d, alpha: 0.6 });
+      const drawTrack = () => {
+        track.clear();
+        track.roundRect(0, 0, trackWidth, trackHeight, 3);
+        track.fill({ color: 0x0b0f18, alpha: 0.9 });
+        track.stroke({ width: 1, color: 0x1f2a3d, alpha: 0.6 });
+      };
       track.eventMode = 'static';
       track.cursor = 'pointer';
-      track.hitArea = new Rectangle(0, 0, trackWidth, trackHeight);
       track.zIndex = 3;
       menu.addChild(track);
 
       thumb = new Graphics();
-      thumb.position.set(trackX, trackInnerY);
-      thumb.roundRect(0, 0, trackWidth, thumbHeight, 3);
-      thumb.fill({ color: 0x4da3ff, alpha: 0.8 });
+      const drawThumb = () => {
+        if (!thumb) return;
+        thumb.clear();
+        thumb.roundRect(0, 0, trackWidth, thumbHeight, 3);
+        thumb.fill({ color: 0x4da3ff, alpha: 0.8 });
+      };
       thumb.eventMode = 'static';
       thumb.cursor = 'pointer';
-      thumb.hitArea = new Rectangle(0, 0, trackWidth, thumbHeight);
       thumb.zIndex = 4;
       menu.addChild(thumb);
-      updateThumb();
+      const applyTrackWidth = () => {
+        const extra = trackWidth - trackBaseWidth;
+        const menuWidth = baseMenuWidth + extra;
+        menu.x = 0;
+        trackX = menuWidth - trackRightInset - trackWidth - extra / 2;
+        menu.hitArea = new Rectangle(0, 0, menuWidth, menuHeight);
+        redrawMenuChrome(menuWidth);
+        track.position.set(trackX, trackPad);
+        if (thumb) {
+          thumb.position.set(trackX, thumb.y || trackInnerY);
+        }
+        drawTrack();
+        drawThumb();
+        track.hitArea = new Rectangle(0, 0, trackWidth, trackHeight);
+        updateThumb();
+      };
+      const animateTrackWidth = () => {
+        const delta = trackTarget - trackWidth;
+        if (Math.abs(delta) <= 0.1) {
+          trackWidth = trackTarget;
+          trackRaf = 0;
+          applyTrackWidth();
+          return;
+        }
+        trackWidth += delta * 0.25;
+        applyTrackWidth();
+        trackRaf = requestAnimationFrame(animateTrackWidth);
+      };
+      const setTrackHover = (hover: boolean) => {
+        trackTarget = hover ? trackHoverWidth : trackBaseWidth;
+        if (!trackRaf) {
+          trackRaf = requestAnimationFrame(animateTrackWidth);
+        }
+      };
+      applyTrackWidth();
 
       let dragging = false;
       let dragOffset = 0;
@@ -1068,12 +1122,14 @@ function makeVariantDropdown(
       const onThumbDown = (e: PointerEvent) => {
         dragging = true;
         dragOffset = toLocalY(e) - (thumb?.y ?? 0);
+        setTrackHover(true);
         e.stopPropagation();
       };
 
       const onTrackDown = (e: PointerEvent) => {
         const clickY = toLocalY(e) - trackPad;
         setScrollFromThumb(clickY - thumbHeight / 2 + trackInnerY);
+        setTrackHover(true);
       };
 
       const onDragMove = (e: PointerEvent) => {
@@ -1082,10 +1138,27 @@ function makeVariantDropdown(
         setScrollFromThumb(nextY);
       };
 
-      const onDragEnd = () => {
+      const onDragEnd = (e: PointerEvent) => {
         dragging = false;
+        const local = menu.toLocal({ x: e.clientX, y: e.clientY });
+        const insideTrack =
+          local.x >= trackX &&
+          local.x <= trackX + trackWidth &&
+          local.y >= trackPad &&
+          local.y <= trackPad + trackHeight;
+        if (!insideTrack) {
+          setTrackHover(false);
+        }
       };
 
+      track.on('pointerover', () => setTrackHover(true));
+      track.on('pointerout', () => {
+        if (!dragging) setTrackHover(false);
+      });
+      thumb.on('pointerover', () => setTrackHover(true));
+      thumb.on('pointerout', () => {
+        if (!dragging) setTrackHover(false);
+      });
       thumb.on('pointerdown', onThumbDown);
       track.on('pointerdown', onTrackDown);
 

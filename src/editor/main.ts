@@ -861,6 +861,7 @@ function makeVariantDropdown(
     let trackX = 0;
     let trackTarget = trackBaseWidth;
     let trackRaf = 0;
+    let trackHoverActive = false;
     const trackPad = 6;
     const trackInset = 1;
     const trackRightInset = 4;
@@ -1046,10 +1047,14 @@ function makeVariantDropdown(
     if (maxScroll > 0) {
       const track = new Graphics();
       const drawTrack = () => {
+        const trackAlpha = trackHoverActive ? 0.94 : 0.9;
+        const trackStrokeAlpha = trackHoverActive ? 0.7 : 0.6;
         track.clear();
         track.roundRect(0, 0, trackWidth, trackHeight, 3);
-        track.fill({ color: 0x0b0f18, alpha: 0.9 });
-        track.stroke({ width: 1, color: 0x1f2a3d, alpha: 0.6 });
+        const trackColor = trackHoverActive ? 0x1f324a : 0x0b111e;
+        const trackStrokeColor = trackHoverActive ? 0x3b577e : 0x223044;
+        track.fill({ color: trackColor, alpha: trackAlpha });
+        track.stroke({ width: 1, color: trackStrokeColor, alpha: trackStrokeAlpha });
       };
       track.eventMode = 'static';
       track.cursor = 'pointer';
@@ -1058,10 +1063,12 @@ function makeVariantDropdown(
 
       thumb = new Graphics();
       const drawThumb = () => {
+        const thumbColor = trackHoverActive ? 0x66b3ff : 0x4da3ff;
+        const thumbAlpha = trackHoverActive ? 0.86 : 0.8;
         if (!thumb) return;
         thumb.clear();
         thumb.roundRect(0, 0, trackWidth, thumbHeight, 3);
-        thumb.fill({ color: 0x4da3ff, alpha: 0.8 });
+        thumb.fill({ color: thumbColor, alpha: thumbAlpha });
       };
       thumb.eventMode = 'static';
       thumb.cursor = 'pointer';
@@ -1096,6 +1103,9 @@ function makeVariantDropdown(
         trackRaf = requestAnimationFrame(animateTrackWidth);
       };
       const setTrackHover = (hover: boolean) => {
+        trackHoverActive = hover;
+        drawTrack();
+        drawThumb();
         trackTarget = hover ? trackHoverWidth : trackBaseWidth;
         if (!trackRaf) {
           trackRaf = requestAnimationFrame(animateTrackWidth);

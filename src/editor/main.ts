@@ -37,6 +37,13 @@ let dropdownBounds: Bounds | null = null;
 let openVariantMenu: (() => void) | null = null;
 let closeVariantMenu: (() => void) | null = null;
 let dropdownShowClosedTooltip = false;
+let menuCloseSnapshot: Sprite | null = null;
+let menuCloseSnapshotTexture: Texture | null = null;
+const menuCloseAnim = {
+  active: false,
+  start: 0,
+  duration: 160
+};
 
 const caretAnimState = {
   angle: 0,
@@ -259,6 +266,9 @@ async function initPixi() {
 
 function renderUI() {
   uiLayer.removeChildren();
+  if (menuCloseSnapshot) {
+    uiLayer.addChild(menuCloseSnapshot);
+  }
   if (ghostContainer) {
     uiLayer.addChild(ghostContainer);
     ghostContainer.zIndex = 10_000;
@@ -732,10 +742,12 @@ function makeVariantDropdown(
   drawDropdown(dropdownHasFocus || dropdownMenuOpen);
   container.addChild(bg, label, caret);
 
-    const menu = new Container();
-    menu.position.set(0, h + 6);
+  const menu = new Container();
+  menu.position.set(0, h + 6);
   menu.visible = false;
   container.addChild(menu);
+  let menuMask!: Graphics;
+  let menuContent!: Container;
 
   const tooltip = new Container();
   tooltip.visible = false;
@@ -826,7 +838,7 @@ function makeVariantDropdown(
     menuGlow.zIndex = 2;
     menu.addChild(menuGlow);
 
-    const menuMask = new Graphics();
+    menuMask = new Graphics();
     menuMask.eventMode = 'none';
     menu.addChild(menuMask);
 
@@ -846,7 +858,7 @@ function makeVariantDropdown(
     };
     redrawMenuChrome(w);
 
-    const menuContent = new Container();
+    menuContent = new Container();
     menuContent.mask = menuMask;
     menuContent.zIndex = 3;
     menu.addChild(menuContent);
@@ -933,7 +945,7 @@ function makeVariantDropdown(
       }
     };
 
-    options.forEach((opt, idx) => {
+        options.forEach((opt, idx) => {
       const item = new Container();
       item.position.set(0, menuPad + idx * itemHeight);
       const isCurrent = opt.id === currentDescriptor.id;
@@ -1298,13 +1310,131 @@ function makeVariantDropdown(
 
   let menuOpen = false;
   let outsideHandler: ((e: PointerEvent) => void) | null = null;
+  const easeOut = (t: number) => 1 - Math.pow(1 - t, 3);
+  const easeIn = (t: number) => t * t * t;
 
-  const closeMenu = () => {
-    menu.visible = false;
+  const animateMenu = (durationMs: number, onUpdate: (t: number) => void, onDone?: () => void) => {
+    const start = performance.now();
+    const step = (now: number) => {
+      const raw = Math.min(1, (now - start) / durationMs);
+      onUpdate(raw);
+      if (raw < 1) {
+        requestAnimationFrame(step);
+      } else if (onDone) {
+        onDone();
+      }
+    };
+    requestAnimationFrame(step);
+  };
+
+  const animateMenuItems = (opening: boolean) => {
+    menuContent.children.forEach((child, index) => {
+      const delay = index * 10;
+      const start = performance.now() + delay;
+      const duration = 200;
+      const from = opening ? 0 : 1;
+      const to = opening ? 1 : 0;
+      const step = (now: number) => {
+        const raw = Math.min(1, Math.max(0, (now - start) / duration));
+        child.alpha = from + (to - from) * easeOut(raw);
+        if (raw < 1) requestAnimationFrame(step);
+      };
+      requestAnimationFrame(step);
+    });
+  };
+
+  const runMenuOpenAnimation = () => {
+    menu.visible = true;
+    menu.alpha = 0;
+    menu.scale.set(1);
+    menu.y = h + 6;
+    menu.filters = [];
+    menuMask.scale.set(1);
+    menuMask.position.set(0, 0);
+    menu.alpha = 0;
+    menu.scale.set(0.98);
+    const startY = h + 2;
+    const endY = h + 6;
+    menu.y = startY;
+    menuContent.children.forEach((child) => {
+      child.alpha = 0;
+    });
+    animateMenuItems(true);
+    animateMenu(180, (t) => {
+      const eased = easeOut(t);
+      menu.alpha = eased;
+      menu.scale.set(0.98 + 0.02 * eased);
+      menu.y = startY + (endY - startY) * eased;
+    });
+  };
+
+  const runMenuCloseAnimation = (snapshot: Sprite, onDone?: () => void) => {
+    if (!menuCloseAnim.active) {
+      menuCloseAnim.active = true;
+      menuCloseAnim.start = performance.now();
+    }
+    const startY = snapshot.y;
+    const endY = h + 2;
+    snapshot.visible = true;
+    snapshot.alpha = 1;
+    snapshot.scale.set(1);
+    const step = (now: number) => {
+      const raw = Math.min(1, (now - menuCloseAnim.start) / menuCloseAnim.duration);
+      const eased = easeIn(raw);
+      snapshot.alpha = 1 - eased;
+      snapshot.scale.set(1 - 0.02 * eased);
+      snapshot.y = startY + (endY - startY) * eased;
+      if (raw < 1) {
+        requestAnimationFrame(step);
+        return;
+      }
+      menuCloseAnim.active = false;
+      snapshot.visible = false;
+      snapshot.alpha = 1;
+      snapshot.scale.set(1);
+      snapshot.y = h + 6;
+      if (menuCloseSnapshotTexture) {
+        menuCloseSnapshotTexture.destroy(true);
+        menuCloseSnapshotTexture = null;
+      }
+      if (menuCloseSnapshot) {
+        menuCloseSnapshot.removeFromParent();
+        menuCloseSnapshot = null;
+      }
+      if (onDone) onDone();
+    };
+    requestAnimationFrame(step);
+  };
+
+  const closeMenu = (onClosed?: () => void) => {
     menuOpen = false;
     dropdownMenuOpen = false;
     setCaretTarget(false);
     syncHoverFromPointer();
+    if (lastPointer.x >= 0) {
+      const fieldBounds = bg.getBounds();
+      const overField =
+        lastPointer.x >= fieldBounds.x &&
+        lastPointer.x <= fieldBounds.x + fieldBounds.width &&
+        lastPointer.y >= fieldBounds.y &&
+        lastPointer.y <= fieldBounds.y + fieldBounds.height;
+      if (!overField) {
+        dropdownHasFocus = false;
+        drawDropdown(false);
+      }
+    }
+    const bounds = menu.getLocalBounds();
+    const globalPos = menu.getGlobalPosition();
+    const texture = app.renderer.generateTexture(menu);
+    const snapshot = new Sprite(texture);
+    snapshot.position.set(globalPos.x + bounds.x, globalPos.y + bounds.y);
+    snapshot.zIndex = 9000;
+    menuCloseSnapshot = snapshot;
+    menuCloseSnapshotTexture = texture;
+    uiLayer.addChild(snapshot);
+    menu.visible = false;
+    menuCloseAnim.active = false;
+    runMenuCloseAnimation(snapshot, onClosed);
     if (outsideHandler) {
       window.removeEventListener('pointerdown', outsideHandler, { capture: true } as AddEventListenerOptions);
       outsideHandler = null;
@@ -1372,6 +1502,7 @@ function makeVariantDropdown(
     dropdownMenuOpen = true;
     setCaretTarget(true);
     rebuildMenu();
+    runMenuOpenAnimation();
     outsideHandler = handleOutside;
     window.addEventListener('pointerdown', outsideHandler, { capture: true });
     if (menuWheelHandler) {
@@ -1420,6 +1551,7 @@ function makeVariantDropdown(
   };
   bg.on('pointerover', onFieldOver);
   bg.on('pointerout', onFieldOut);
+  bg.on('pointermove', showFieldTooltip);
 
 
   if (labelTruncated) {
@@ -1438,6 +1570,7 @@ function makeVariantDropdown(
   caret.eventMode = 'static';
   caret.on('pointerover', onFieldOver);
   caret.on('pointerout', onFieldOut);
+  caret.on('pointermove', showFieldTooltip);
 
   if (dropdownShowClosedTooltip && dropdownHasFocus && !dropdownMenuOpen) {
     if (labelTruncated) {

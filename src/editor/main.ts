@@ -797,6 +797,23 @@ function makeVariantDropdown(
     drawDropdown(dropdownHasFocus);
   };
 
+  const resolveCursorAtPoint = (px: number, py: number) => {
+    const boundary = app.renderer.events?.rootBoundary;
+    if (!boundary) return 'default';
+    let target = boundary.hitTest(px, py) as Container | null;
+    while (target) {
+      if (target === menu) {
+        return 'default';
+      }
+      const cursor = (target as { cursor?: string }).cursor;
+      if (cursor) {
+        return cursor;
+      }
+      target = target.parent;
+    }
+    return 'default';
+  };
+
   const itemHeight = 34;
   let menuWheelHandler: ((e: WheelEvent) => void) | null = null;
   let menuDragHandler: ((e: PointerEvent) => void) | null = null;
@@ -1411,6 +1428,14 @@ function makeVariantDropdown(
     dropdownMenuOpen = false;
     setCaretTarget(false);
     syncHoverFromPointer();
+    app.renderer.events.setCursor('default');
+    const resetCursorOnUp = () => {
+      if (lastPointer.x >= 0) {
+        app.renderer.events.setCursor(resolveCursorAtPoint(lastPointer.x, lastPointer.y));
+      }
+      window.removeEventListener('pointerup', resetCursorOnUp);
+    };
+    window.addEventListener('pointerup', resetCursorOnUp, { once: true });
     if (lastPointer.x >= 0) {
       const fieldBounds = bg.getBounds();
       const overField =
@@ -1429,10 +1454,14 @@ function makeVariantDropdown(
     const snapshot = new Sprite(texture);
     snapshot.position.set(globalPos.x + bounds.x, globalPos.y + bounds.y);
     snapshot.zIndex = 9000;
+    snapshot.eventMode = 'none';
     menuCloseSnapshot = snapshot;
     menuCloseSnapshotTexture = texture;
     uiLayer.addChild(snapshot);
     menu.visible = false;
+    if (lastPointer.x >= 0) {
+      app.renderer.events.setCursor(resolveCursorAtPoint(lastPointer.x, lastPointer.y));
+    }
     menuCloseAnim.active = false;
     runMenuCloseAnimation(snapshot, onClosed);
     if (outsideHandler) {

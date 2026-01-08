@@ -1374,7 +1374,7 @@ function makeVariantDropdown(
       menuCloseAnim.start = performance.now();
     }
     const startY = snapshot.y;
-    const endY = h + 2;
+    const endY = startY - 4;
     snapshot.visible = true;
     snapshot.alpha = 1;
     snapshot.scale.set(1);

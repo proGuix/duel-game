@@ -831,8 +831,18 @@ function makeVariantDropdown(
     menu.sortableChildren = true;
     menu.eventMode = 'static';
     menu.hitArea = new Rectangle(0, 0, w, menuHeight);
-    menu.on('pointerdown', (e) => {
+    menu.on('pointerdown', (e: any) => {
       e.stopPropagation();
+      const global = e.global ?? { x: 0, y: 0 };
+      const local = menu.toLocal(global);
+      const idx = hitItemIndex(local.x, local.y + scrollY);
+      const px = global.x;
+      const py = global.y;
+      const cursor = idx >= 0 || isPointerOnScrollbar(px, py) ? 'pointer' : 'default';
+      app.renderer.events.setCursor(cursor);
+      requestAnimationFrame(() => {
+        app.renderer.events.setCursor(cursor);
+      });
     });
 
     const menuRadius = 12;
@@ -884,6 +894,7 @@ function makeVariantDropdown(
     const maxScroll = Math.max(0, contentHeight - menuHeight);
     const itemRightPad = maxScroll > 0 ? 14 : 0;
     let thumb: Graphics | null = null;
+    let track: Graphics | null = null;
     const trackBaseWidth = 4;
     const trackHoverWidth = 8;
     let trackWidth = trackBaseWidth;
@@ -998,6 +1009,22 @@ function makeVariantDropdown(
       if (idx < 0 || idx >= options.length) return -1;
       if (localY < itemTop || localY > itemBottom) return -1;
       return idx;
+    };
+
+    const isPointerOnScrollbar = (px: number, py: number) => {
+      if (track) {
+        const bounds = track.getBounds();
+        if (px >= bounds.x && px <= bounds.x + bounds.width && py >= bounds.y && py <= bounds.y + bounds.height) {
+          return true;
+        }
+      }
+      if (thumb) {
+        const bounds = thumb.getBounds();
+        if (px >= bounds.x && px <= bounds.x + bounds.width && py >= bounds.y && py <= bounds.y + bounds.height) {
+          return true;
+        }
+      }
+      return false;
     };
 
     const setFocusIndex = (nextIndex: number) => {
@@ -1140,21 +1167,22 @@ function makeVariantDropdown(
     }
 
     if (maxScroll > 0) {
-      const track = new Graphics();
+      const trackLocal = new Graphics();
+      track = trackLocal;
       const drawTrack = () => {
         const trackAlpha = trackHoverActive ? 0.94 : 0.9;
         const trackStrokeAlpha = trackHoverActive ? 0.7 : 0.6;
-        track.clear();
-        track.roundRect(0, 0, trackWidth, trackHeight, 3);
+        trackLocal.clear();
+        trackLocal.roundRect(0, 0, trackWidth, trackHeight, 3);
         const trackColor = trackHoverActive ? 0x1f324a : 0x0b111e;
         const trackStrokeColor = trackHoverActive ? 0x3b577e : 0x223044;
-        track.fill({ color: trackColor, alpha: trackAlpha });
-        track.stroke({ width: 1, color: trackStrokeColor, alpha: trackStrokeAlpha });
+        trackLocal.fill({ color: trackColor, alpha: trackAlpha });
+        trackLocal.stroke({ width: 1, color: trackStrokeColor, alpha: trackStrokeAlpha });
       };
-      track.eventMode = 'static';
-      track.cursor = 'pointer';
-      track.zIndex = 3;
-      menu.addChild(track);
+      trackLocal.eventMode = 'static';
+      trackLocal.cursor = 'pointer';
+      trackLocal.zIndex = 3;
+      menu.addChild(trackLocal);
 
       thumb = new Graphics();
       const drawThumb = () => {
@@ -1176,13 +1204,13 @@ function makeVariantDropdown(
         trackX = menuWidth - trackRightInset - trackWidth - extra / 2;
         menu.hitArea = new Rectangle(0, 0, menuWidth, menuHeight);
         redrawMenuChrome(menuWidth);
-        track.position.set(trackX, trackPad);
+        trackLocal.position.set(trackX, trackPad);
         if (thumb) {
           thumb.position.set(trackX, thumb.y || trackInnerY);
         }
         drawTrack();
         drawThumb();
-        track.hitArea = new Rectangle(0, 0, trackWidth, trackHeight);
+        trackLocal.hitArea = new Rectangle(0, 0, trackWidth, trackHeight);
         updateThumb();
       };
       const animateTrackWidth = () => {
@@ -1256,8 +1284,8 @@ function makeVariantDropdown(
         }
       };
 
-      track.on('pointerover', () => setTrackHover(true));
-      track.on('pointerout', () => {
+      trackLocal.on('pointerover', () => setTrackHover(true));
+      trackLocal.on('pointerout', () => {
         if (!dragging) setTrackHover(false);
       });
       thumb.on('pointerover', () => setTrackHover(true));
@@ -1265,7 +1293,7 @@ function makeVariantDropdown(
         if (!dragging) setTrackHover(false);
       });
       thumb.on('pointerdown', onThumbDown);
-      track.on('pointerdown', onTrackDown);
+      trackLocal.on('pointerdown', onTrackDown);
 
       if (menuDragHandler) {
         window.removeEventListener('pointermove', menuDragHandler);
@@ -1294,6 +1322,7 @@ function makeVariantDropdown(
       if (idx >= 0 && idx < options.length) {
         setFocusIndex(idx);
         menuFocusIndex = idx;
+        app.renderer.events.setCursor('pointer');
         if (truncatedFlags[idx]) {
           const pos = toCanvasPoint(e.clientX, e.clientY);
           showTooltip(labels[idx], pos.x, pos.y);
@@ -1301,6 +1330,7 @@ function makeVariantDropdown(
           hideTooltip();
         }
       } else {
+        app.renderer.events.setCursor(isPointerOnScrollbar(px, py) ? 'pointer' : 'default');
         hideTooltip();
       }
     };

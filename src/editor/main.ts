@@ -940,8 +940,6 @@ function makeVariantDropdown(
     const itemWidth = w - 8 - itemRightPad;
     const markerWidth = 2;
     const hoverShift = 3;
-    const hoverEpsilon = 0.01;
-    const hoverSpeed = 0.25;
     const ghostHighlight = new Graphics();
     ghostHighlight.eventMode = 'none';
     ghostHighlight.visible = false;
@@ -949,11 +947,12 @@ function makeVariantDropdown(
     ghostHighlight.roundPixels = false;
     menuContent.sortableChildren = true;
     menuContent.addChild(ghostHighlight);
-    const hoverDuration = 150;
+    const hoverDuration = 250;
+    const ghostDuration = 120;
     const ghostAnim = {
       active: false,
       start: 0,
-      duration: hoverDuration,
+      duration: ghostDuration,
       startY: 0,
       endY: 0,
     };

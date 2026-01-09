@@ -931,6 +931,62 @@ function makeVariantDropdown(
     const hoverShift = 3;
     const hoverEpsilon = 0.01;
     const hoverSpeed = 0.25;
+    const ghostHighlight = new Graphics();
+    ghostHighlight.eventMode = 'none';
+    ghostHighlight.visible = false;
+    ghostHighlight.zIndex = 0;
+    ghostHighlight.roundPixels = false;
+    menuContent.sortableChildren = true;
+    menuContent.addChild(ghostHighlight);
+    const hoverDuration = 150;
+    const ghostAnim = {
+      active: false,
+      start: 0,
+      duration: hoverDuration,
+      startY: 0,
+      endY: 0,
+    };
+    let ghostRaf = 0;
+
+    const drawGhost = () => {
+      ghostHighlight.clear();
+      ghostHighlight.roundRect(itemInset, 0, itemWidth, itemInnerHeight, 8);
+      ghostHighlight.fill({ color: 0x2b3a56, alpha: 0.28 });
+      ghostHighlight.stroke({ width: 1, color: 0x5aa7ff, alpha: 0.18 });
+    };
+    drawGhost();
+
+    const easeInOut = (t: number) => t * t * (3 - 2 * t);
+    const runGhostAnim = () => {
+      if (!ghostAnim.active) {
+        ghostRaf = 0;
+        return;
+      }
+      const now = performance.now();
+      const raw = Math.min(1, (now - ghostAnim.start) / ghostAnim.duration);
+      const eased = easeInOut(raw);
+      ghostHighlight.y = ghostAnim.startY + (ghostAnim.endY - ghostAnim.startY) * eased;
+      if (raw < 1) {
+        ghostRaf = requestAnimationFrame(runGhostAnim);
+        return;
+      }
+      ghostAnim.active = false;
+      ghostHighlight.visible = false;
+      ghostRaf = 0;
+    };
+
+    const startGhostSlide = (fromIndex: number, toIndex: number) => {
+      if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return;
+      ghostHighlight.visible = true;
+      ghostHighlight.y = menuPad + fromIndex * itemHeight;
+      ghostAnim.active = true;
+      ghostAnim.start = performance.now();
+      ghostAnim.startY = ghostHighlight.y;
+      ghostAnim.endY = menuPad + toIndex * itemHeight;
+      if (!ghostRaf) {
+        ghostRaf = requestAnimationFrame(runGhostAnim);
+      }
+    };
 
     const hitItemIndex = (localX: number, localY: number) => {
       if (localX < itemX || localX > itemX + itemWidth) return -1;
@@ -947,6 +1003,7 @@ function makeVariantDropdown(
     const setFocusIndex = (nextIndex: number) => {
       if (focusedIndex === nextIndex) return;
       const prevIndex = focusedIndex;
+      startGhostSlide(prevIndex, nextIndex);
       if (focusedIndex >= 0 && drawFns[focusedIndex]) {
         drawFns[focusedIndex](false);
       }
@@ -965,11 +1022,15 @@ function makeVariantDropdown(
         options.forEach((opt, idx) => {
       const item = new Container();
       item.position.set(0, menuPad + idx * itemHeight);
+      item.zIndex = 1;
       const isCurrent = opt.id === currentDescriptor.id;
       const btnBg = new Graphics();
       let hoverT = 0;
       let hoverTarget = 0;
       let hoverRaf = 0;
+      let hoverAnimStart = 0;
+      let hoverAnimFrom = 0;
+      let hoverAnimTo = 0;
       const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
       const lerpColor = (a: number, b: number, t: number) => {
         const ar = (a >> 16) & 0xff;
@@ -983,41 +1044,46 @@ function makeVariantDropdown(
         const rb = Math.round(lerp(ab, bb, t));
         return (rr << 16) | (rg << 8) | rb;
       };
-      const drawItemBg = (focused: boolean) => {
-        const t = focused ? 1 : hoverT;
+      const drawItemBg = () => {
+        const t = hoverT;
         btnBg.clear();
         btnBg.roundRect(0, 0, w - 8 - itemRightPad, itemInnerHeight, 8);
         if (t > 0) {
           const fillColor = lerpColor(menuBgColor, 0x2b3a56, t);
-          const fillAlpha = lerp(0.0, 0.9, t);
+          const fillAlpha = lerp(0.0, 1.0, t);
           const strokeColor = lerpColor(menuBgColor, 0x5aa7ff, t);
-          const strokeAlpha = lerp(0.0, 0.9, t);
+          const strokeAlpha = lerp(0.0, 1.0, t);
           btnBg.fill({ color: fillColor, alpha: fillAlpha });
           btnBg.stroke({ width: 1, color: strokeColor, alpha: strokeAlpha });
         }
         btnBg.x = itemInset;
         item.x = hoverT * hoverShift;
       };
+      const easeOut = (t: number) => 1 - Math.pow(1 - t, 3);
       const animateHover = () => {
-        const delta = hoverTarget - hoverT;
-        if (Math.abs(delta) <= hoverEpsilon) {
-          hoverT = hoverTarget;
-          hoverRaf = 0;
-          drawItemBg(menuFocusIndex === idx);
+        const raw = Math.min(1, (performance.now() - hoverAnimStart) / hoverDuration);
+        const eased = easeOut(raw);
+        hoverT = hoverAnimFrom + (hoverAnimTo - hoverAnimFrom) * eased;
+        drawItemBg();
+        if (raw < 1) {
+          hoverRaf = requestAnimationFrame(animateHover);
           return;
         }
-        hoverT += delta * hoverSpeed;
-        drawItemBg(menuFocusIndex === idx);
-        hoverRaf = requestAnimationFrame(animateHover);
+        hoverT = hoverAnimTo;
+        hoverRaf = 0;
+        drawItemBg();
       };
       const setHover = (next: number) => {
         hoverTarget = next;
+        hoverAnimStart = performance.now();
+        hoverAnimFrom = hoverT;
+        hoverAnimTo = hoverTarget;
         if (!hoverRaf) {
           hoverRaf = requestAnimationFrame(animateHover);
         }
       };
       hoverSetters[idx] = setHover;
-      drawItemBg(false);
+      drawItemBg();
       drawFns[idx] = drawItemBg;
       item.addChild(btnBg);
 

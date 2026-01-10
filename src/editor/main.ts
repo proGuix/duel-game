@@ -730,17 +730,36 @@ function makeVariantDropdown(
     caret.rotation = caretAngle;
   };
 
+  const fieldGlow = new Graphics();
+  fieldGlow.eventMode = 'none';
+  fieldGlow.visible = true;
+  fieldGlow.filters = [new BlurFilter({ strength: 8, quality: 4 })];
+  const fieldEdge = new Graphics();
+  fieldEdge.eventMode = 'none';
+  const drawFieldGlow = () => {
+    fieldGlow.clear();
+    const inset = 6;
+    const band = 4;
+    fieldGlow.roundRect(inset, inset, w - inset * 2, band, 5);
+    fieldGlow.fill({ color: 0x6aaeff, alpha: 0.3 });
+
+    fieldEdge.clear();
+    fieldEdge.roundRect(6, h - 4, w - 12, 3, 6);
+    fieldEdge.fill({ color: 0x0b111e, alpha: 0.5 });
+  };
+
   const drawDropdown = (focused: boolean) => {
     bg.clear();
     bg.roundRect(0, 0, w, h, 10);
     bg.fill({ color: 0x1a2030, alpha: focused ? 0.55 : 0.4 });
     bg.stroke({ width: 1, color: focused ? 0x5aa7ff : 0x2a3343, alpha: focused ? 0.9 : 0.7 });
     drawCaret(focused);
+    drawFieldGlow();
   };
   caretAnimState.draw = () => drawCaret(dropdownHasFocus || dropdownMenuOpen);
   setCaretTarget(dropdownMenuOpen);
   drawDropdown(dropdownHasFocus || dropdownMenuOpen);
-  container.addChild(bg, label, caret);
+  container.addChild(bg, fieldGlow, fieldEdge, label, caret);
 
   const menu = new Container();
   menu.position.set(0, h + 6);

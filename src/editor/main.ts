@@ -8,8 +8,7 @@ import {
   Texture,
   BlurFilter,
   type TextStyleFontWeight,
-  Rectangle,
-  type Bounds
+  Rectangle
 } from 'pixi.js';
 import {
   ensureBehaviorRegistry,
@@ -30,53 +29,16 @@ let uiLayer: Container;
 let currentDescriptor: BehaviorDescriptor;
 let selectedPath: number[] = [];
 let hasUnsavedChanges = false;
-let lastPointer = { x: -1, y: -1 };
-let dropdownHasFocus = false;
-let dropdownMenuOpen = false;
-let dropdownBounds: Bounds | null = null;
-let openVariantMenu: (() => void) | null = null;
-let closeVariantMenu: (() => void) | null = null;
-let dropdownShowClosedTooltip = false;
-let menuCloseSnapshot: Sprite | null = null;
-let menuCloseSnapshotTexture: Texture | null = null;
-const menuCloseAnim = {
-  active: false,
-  start: 0,
-  duration: 160
-};
+let variantDropdownRef: (Container & {
+  setSelected?: (desc: BehaviorDescriptor) => void;
+  refreshOptions?: () => void;
+  syncSelection?: () => void;
+  openMenu?: () => void;
+  closeMenu?: () => void;
+  cleanup?: () => void;
+}) | null = null;
+let saveButtonRef: { setPrimary?: (primary: boolean) => void } | null = null;
 
-const caretAnimState = {
-  angle: 0,
-  target: 0,
-  animating: false,
-  rafId: 0,
-  draw: null as null | (() => void)
-};
-
-const caretAnimSpeed = 0.25;
-
-const tickCaret = () => {
-  if (!caretAnimState.animating) return;
-  const delta = caretAnimState.target - caretAnimState.angle;
-  if (Math.abs(delta) <= 0.01) {
-    caretAnimState.angle = caretAnimState.target;
-    caretAnimState.animating = false;
-  } else {
-    caretAnimState.angle += delta * caretAnimSpeed;
-  }
-  if (caretAnimState.draw) caretAnimState.draw();
-  if (caretAnimState.animating) {
-    caretAnimState.rafId = requestAnimationFrame(tickCaret);
-  }
-};
-
-const setCaretTarget = (open: boolean) => {
-  caretAnimState.target = open ? Math.PI : 0;
-  if (!caretAnimState.animating) {
-    caretAnimState.animating = true;
-    caretAnimState.rafId = requestAnimationFrame(tickCaret);
-  }
-};
 
 let paletteDragNode: BTNodeDef | null = null;
 let dragNode: { path: number[]; node: BTNodeDef } | null = null;
@@ -210,53 +172,9 @@ async function initPixi() {
     { passive: false }
   );
 
-  window.addEventListener('pointermove', (e) => {
-    const pos = toCanvasPoint(e.clientX, e.clientY);
-    lastPointer = { x: pos.x, y: pos.y };
-    if (!dropdownMenuOpen && dropdownBounds) {
-      const inside =
-        pos.x >= dropdownBounds.x &&
-        pos.x <= dropdownBounds.x + dropdownBounds.width &&
-        pos.y >= dropdownBounds.y &&
-        pos.y <= dropdownBounds.y + dropdownBounds.height;
-      if (inside !== dropdownHasFocus) {
-        dropdownHasFocus = inside;
-        renderUI();
-      }
-      if (dropdownShowClosedTooltip && !dropdownHasFocus) {
-        dropdownShowClosedTooltip = false;
-        renderUI();
-      }
-    }
-  });
-
   window.addEventListener('keydown', (e) => {
     const tag = (e.target as HTMLElement | null)?.tagName?.toLowerCase() ?? '';
     if (['input', 'textarea', 'select'].includes(tag)) return;
-    if (!dropdownMenuOpen && dropdownHasFocus && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
-      e.preventDefault();
-      const options = listBehaviorOptions();
-      const currentIndex = options.findIndex((o) => o.id === currentDescriptor.id);
-      if (currentIndex < 0) return;
-      const dir = e.key === 'ArrowDown' ? 1 : -1;
-      const nextIndex = Math.max(0, Math.min(options.length - 1, currentIndex + dir));
-      const next = options[nextIndex];
-      if (next && next.id !== currentDescriptor.id) {
-        dropdownShowClosedTooltip = true;
-        requestVariantSwitch(next.id);
-      }
-      return;
-    }
-    if (!dropdownMenuOpen && dropdownHasFocus && e.key === 'ArrowRight') {
-      e.preventDefault();
-      openVariantMenu?.();
-      return;
-    }
-    if (dropdownMenuOpen && e.key === 'ArrowLeft') {
-      e.preventDefault();
-      closeVariantMenu?.();
-      return;
-    }
     if ((e.key === 'Delete' || e.key === 'Backspace') && selectedPath.length > 0) {
       e.preventDefault();
       removeNode(selectedPath);
@@ -265,10 +183,8 @@ async function initPixi() {
 }
 
 function renderUI() {
+  variantDropdownRef?.cleanup?.();
   uiLayer.removeChildren();
-  if (menuCloseSnapshot) {
-    uiLayer.addChild(menuCloseSnapshot);
-  }
   if (ghostContainer) {
     uiLayer.addChild(ghostContainer);
     ghostContainer.zIndex = 10_000;
@@ -297,9 +213,8 @@ function renderUI() {
     saveBtnWidth;
   let xCursor = Math.round((w - totalWidth) / 2);
 
-  const variantDropdown = makeVariantDropdown(xCursor, yBtn, dropdownWidth, itemHeight);
-  uiLayer.addChild(variantDropdown);
-  dropdownBounds = variantDropdown.getBounds();
+  variantDropdownRef = makeVariantDropdown(xCursor, yBtn, dropdownWidth, itemHeight);
+  uiLayer.addChild(variantDropdownRef);
   xCursor += dropdownWidth + controlBtnGap;
 
   const controls = [
@@ -314,7 +229,9 @@ function renderUI() {
           upsertBehaviorDescriptor(currentDescriptor);
           hasUnsavedChanges = false;
           redrawTree();
-          renderUI();
+          refreshVariantOptions();
+          updateVariantSelectionUI();
+          updateSaveButton();
         });
       }
     },
@@ -328,7 +245,9 @@ function renderUI() {
         upsertBehaviorDescriptor(currentDescriptor);
         hasUnsavedChanges = false;
         redrawTree();
-        renderUI();
+        refreshVariantOptions();
+        updateVariantSelectionUI();
+        updateSaveButton();
       }
     },
     {
@@ -343,7 +262,9 @@ function renderUI() {
         if (next) currentDescriptor = next;
         hasUnsavedChanges = false;
         redrawTree();
-        renderUI();
+        refreshVariantOptions();
+        updateVariantSelectionUI();
+        updateSaveButton();
       }
     }
   ];
@@ -356,6 +277,7 @@ function renderUI() {
   const saveBtn = makeButton('Enregistrer', xCursor, yBtn, saveBtnWidth, itemHeight, () => {
     saveCurrentDescriptor();
   }, hasUnsavedChanges);
+  saveButtonRef = saveBtn;
   uiLayer.addChild(saveBtn.container);
 
   // Palette
@@ -399,6 +321,10 @@ function renderUI() {
       py += 38;
     }
     py += 10;
+  }
+
+  if (activeNamePrompt) {
+    uiLayer.addChild(activeNamePrompt);
   }
 }
 
@@ -653,16 +579,21 @@ function makeButton(
     onClick();
   });
   const bg = new Graphics();
-  bg.roundRect(0, 0, w, h, 10);
-  bg.fill({
-    color: primary ? 0x4da3ff : 0x1a2030,
-    alpha: primary ? 1 : hollow ? 0.1 : 0.3
-  });
-  bg.stroke({ width: 1, color: primary ? 0x4da3ff : 0x2a3343, alpha: hollow ? 0.5 : 0.6 });
   const txt = createBitmapTextNode(label, { fill: primary ? 0x0b0f18 : 0xdfe8ff, fontSize: 13, fontWeight: '600' });
   txt.position.set(w / 2 - txt.width / 2, h / 2 - txt.height / 2);
+  const applyStyle = (isPrimary: boolean) => {
+    bg.clear();
+    bg.roundRect(0, 0, w, h, 10);
+    bg.fill({
+      color: isPrimary ? 0x4da3ff : 0x1a2030,
+      alpha: isPrimary ? 1 : hollow ? 0.1 : 0.3
+    });
+    bg.stroke({ width: 1, color: isPrimary ? 0x4da3ff : 0x2a3343, alpha: hollow ? 0.5 : 0.6 });
+    txt.tint = isPrimary ? 0x0b0f18 : 0xdfe8ff;
+  };
+  applyStyle(primary);
   container.addChild(bg, txt);
-  return { container, bg, txt };
+  return { container, bg, txt, setPrimary: (isPrimary: boolean) => applyStyle(isPrimary) };
 }
 
 function applyEllipsis(text: BitmapText, fullText: string, maxWidth: number) {
@@ -694,8 +625,19 @@ function makeVariantDropdown(
   w: number,
   h: number
 ) {
-  const container = new Container();
+  const container = new Container() as Container & {
+    setSelected?: (desc: BehaviorDescriptor) => void;
+    refreshOptions?: () => void;
+    syncSelection?: () => void;
+    openMenu?: () => void;
+    closeMenu?: () => void;
+    cleanup?: () => void;
+  };
   container.position.set(x, y);
+  let lastPointer = { x: -1, y: -1 };
+  let dropdownHasFocus = false;
+  let dropdownMenuOpen = false;
+  let dropdownShowClosedTooltip = false;
   let dropdownHover = false;
   dropdownHover = dropdownHasFocus;
 
@@ -707,8 +649,8 @@ function makeVariantDropdown(
     fontWeight: '600'
   });
   label.position.set(12, h / 2 - label.height / 2);
-  const labelFull = currentDescriptor.label ?? 'Variantes';
-  const labelTruncated = applyEllipsis(label, labelFull, w - 40);
+  let labelFull = currentDescriptor.label ?? 'Variantes';
+  let labelTruncated = applyEllipsis(label, labelFull, w - 40);
   container.addChild(label);
 
   const caret = new Graphics();
@@ -717,6 +659,35 @@ function makeVariantDropdown(
   const caretHeight = 8;
   const caretCenterX = caretX + 6;
   const caretCenterY = caretY + caretHeight / 2;
+  const caretAnimState = {
+    angle: 0,
+    target: 0,
+    animating: false,
+    rafId: 0,
+    draw: null as null | (() => void)
+  };
+  const caretAnimSpeed = 0.25;
+  const tickCaret = () => {
+    if (!caretAnimState.animating) return;
+    const delta = caretAnimState.target - caretAnimState.angle;
+    if (Math.abs(delta) <= 0.01) {
+      caretAnimState.angle = caretAnimState.target;
+      caretAnimState.animating = false;
+    } else {
+      caretAnimState.angle += delta * caretAnimSpeed;
+    }
+    if (caretAnimState.draw) caretAnimState.draw();
+    if (caretAnimState.animating) {
+      caretAnimState.rafId = requestAnimationFrame(tickCaret);
+    }
+  };
+  const setCaretTarget = (open: boolean) => {
+    caretAnimState.target = open ? Math.PI : 0;
+    if (!caretAnimState.animating) {
+      caretAnimState.animating = true;
+      caretAnimState.rafId = requestAnimationFrame(tickCaret);
+    }
+  };
   const drawCaret = (focused: boolean) => {
     const caretAngle = caretAnimState.angle;
     caret.clear();
@@ -815,6 +786,26 @@ function makeVariantDropdown(
     dropdownMenuOpen = menuOpen;
     drawDropdown(dropdownHasFocus);
   };
+
+  const updateClosedTooltip = () => {
+    if (!dropdownShowClosedTooltip || dropdownMenuOpen) return;
+    if (!dropdownHasFocus) {
+      hideTooltip();
+      return;
+    }
+    if (labelTruncated) {
+      const bounds = container.getBounds();
+      const tooltipX = bounds.x + 8;
+      const tooltipY = bounds.y + bounds.height * 0.75;
+      showTooltip(labelFull, tooltipX, tooltipY);
+      tooltip.position.set(tooltipX, tooltipY);
+    } else {
+      hideTooltip();
+    }
+  };
+
+  let windowPointerMoveHandler: ((e: PointerEvent) => void) | null = null;
+  let windowKeyHandler: ((e: KeyboardEvent) => void) | null = null;
 
   const resolveCursorAtPoint = (px: number, py: number) => {
     const boundary = app.renderer.events?.rootBoundary;
@@ -1474,6 +1465,14 @@ function makeVariantDropdown(
     });
   };
 
+  const menuCloseAnim = {
+    active: false,
+    start: 0,
+    duration: 160
+  };
+  let menuCloseSnapshot: Sprite | null = null;
+  let menuCloseSnapshotTexture: Texture | null = null;
+
   const runMenuOpenAnimation = () => {
     menu.visible = true;
     menu.alpha = 0;
@@ -1678,8 +1677,94 @@ function makeVariantDropdown(
     showTooltip(labelFull, pos.x, pos.y);
   };
 
-  openVariantMenu = () => openMenu();
-  closeVariantMenu = () => closeMenu();
+  container.openMenu = () => openMenu();
+  container.closeMenu = () => closeMenu();
+  const updateLabelFromDescriptor = (desc: BehaviorDescriptor) => {
+    labelFull = desc.label ?? 'Variantes';
+    label.text = labelFull;
+    labelTruncated = applyEllipsis(label, labelFull, w - 40);
+    label.position.set(12, h / 2 - label.height / 2);
+    drawDropdown(dropdownHasFocus || dropdownMenuOpen);
+    if (menuOpen) {
+      rebuildMenu();
+    }
+    updateClosedTooltip();
+  };
+  container.setSelected = (desc: BehaviorDescriptor) => {
+    updateLabelFromDescriptor(desc);
+  };
+  container.refreshOptions = () => {
+    if (menuOpen) {
+      rebuildMenu();
+    }
+  };
+  container.syncSelection = () => {
+    syncHoverFromPointer();
+    updateClosedTooltip();
+  };
+  const handleWindowPointerMove = (e: PointerEvent) => {
+    if (activeNamePrompt) return;
+    const pos = toCanvasPoint(e.clientX, e.clientY);
+    lastPointer = { x: pos.x, y: pos.y };
+    if (dropdownMenuOpen) return;
+    const bounds = container.getBounds();
+    const inside =
+      pos.x >= bounds.x &&
+      pos.x <= bounds.x + bounds.width &&
+      pos.y >= bounds.y &&
+      pos.y <= bounds.y + bounds.height;
+    if (inside !== dropdownHasFocus) {
+      dropdownHasFocus = inside;
+      drawDropdown(dropdownHasFocus);
+      updateClosedTooltip();
+    }
+    if (dropdownShowClosedTooltip && !dropdownHasFocus) {
+      dropdownShowClosedTooltip = false;
+      updateClosedTooltip();
+    }
+  };
+  const handleWindowKeyDown = (e: KeyboardEvent) => {
+    if (activeNamePrompt) return;
+    const tag = (e.target as HTMLElement | null)?.tagName?.toLowerCase() ?? '';
+    if (['input', 'textarea', 'select'].includes(tag)) return;
+    if (!dropdownMenuOpen && dropdownHasFocus && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+      e.preventDefault();
+      const options = listBehaviorOptions();
+      const currentIndex = options.findIndex((o) => o.id === currentDescriptor.id);
+      if (currentIndex < 0) return;
+      const dir = e.key === 'ArrowDown' ? 1 : -1;
+      const nextIndex = Math.max(0, Math.min(options.length - 1, currentIndex + dir));
+      const next = options[nextIndex];
+      if (next && next.id !== currentDescriptor.id) {
+        dropdownShowClosedTooltip = true;
+        requestVariantSwitch(next.id);
+      }
+      return;
+    }
+    if (!dropdownMenuOpen && dropdownHasFocus && e.key === 'ArrowRight') {
+      e.preventDefault();
+      openMenu();
+      return;
+    }
+    if (dropdownMenuOpen && e.key === 'ArrowLeft') {
+      e.preventDefault();
+      closeMenu();
+    }
+  };
+  windowPointerMoveHandler = handleWindowPointerMove;
+  windowKeyHandler = handleWindowKeyDown;
+  window.addEventListener('pointermove', handleWindowPointerMove);
+  window.addEventListener('keydown', handleWindowKeyDown);
+  container.cleanup = () => {
+    if (windowPointerMoveHandler) {
+      window.removeEventListener('pointermove', windowPointerMoveHandler);
+      windowPointerMoveHandler = null;
+    }
+    if (windowKeyHandler) {
+      window.removeEventListener('keydown', windowKeyHandler);
+      windowKeyHandler = null;
+    }
+  };
   const onFieldOver = (e: any) => {
     dropdownHover = true;
     dropdownHasFocus = true;
@@ -1697,16 +1782,18 @@ function makeVariantDropdown(
   bg.on('pointermove', showFieldTooltip);
 
 
-  if (labelTruncated) {
-    label.eventMode = 'static';
-    const follow = (e: any) => {
-      const pos = e.global ?? { x: 0, y: 0 };
-      showTooltip(labelFull, pos.x, pos.y);
-    };
-    label.on('pointerover', follow);
-    label.on('pointermove', follow);
-    label.on('pointerout', hideTooltip);
-  }
+  label.eventMode = 'static';
+  const follow = (e: any) => {
+    if (!labelTruncated) {
+      hideTooltip();
+      return;
+    }
+    const pos = e.global ?? { x: 0, y: 0 };
+    showTooltip(labelFull, pos.x, pos.y);
+  };
+  label.on('pointerover', follow);
+  label.on('pointermove', follow);
+  label.on('pointerout', hideTooltip);
   label.on('pointerover', onFieldOver);
   label.on('pointerout', onFieldOut);
 
@@ -1715,33 +1802,37 @@ function makeVariantDropdown(
   caret.on('pointerout', onFieldOut);
   caret.on('pointermove', showFieldTooltip);
 
-  if (dropdownShowClosedTooltip && dropdownHasFocus && !dropdownMenuOpen) {
-    if (labelTruncated) {
-      const bounds = container.getBounds();
-      const tooltipX = bounds.x + 8;
-      const tooltipY = bounds.y + bounds.height * 0.75;
-      showTooltip(labelFull, tooltipX, tooltipY);
-      tooltip.position.set(tooltipX, tooltipY);
-    } else {
-      hideTooltip();
-    }
-  }
+  updateClosedTooltip();
 
   syncHoverFromPointer();
 
   return container;
 }
 
+function updateVariantSelectionUI() {
+  if (!variantDropdownRef?.setSelected) return;
+  variantDropdownRef.setSelected(currentDescriptor);
+  variantDropdownRef.syncSelection?.();
+}
+
+function refreshVariantOptions() {
+  variantDropdownRef?.refreshOptions?.();
+}
+
+function updateSaveButton() {
+  saveButtonRef?.setPrimary?.(hasUnsavedChanges);
+}
+
 function markDirty() {
   hasUnsavedChanges = true;
-  renderUI();
+  updateSaveButton();
 }
 
 function saveCurrentDescriptor() {
   currentDescriptor = validateDescriptor(currentDescriptor);
   upsertBehaviorDescriptor(currentDescriptor);
   hasUnsavedChanges = false;
-  renderUI();
+  updateSaveButton();
 }
 
 function requestVariantSwitch(nextId: string) {
@@ -1775,6 +1866,8 @@ function promptBehaviorName(defaultValue: string, onResult: (name: string | null
   overlay.zIndex = 30_000;
   overlay.eventMode = 'static';
   overlay.cursor = 'default';
+  overlay.on('pointerdown', (e) => e.stopPropagation());
+  overlay.on('pointerdown', (e) => e.stopPropagation());
 
   const w = app.renderer.width;
   const h = app.renderer.height;
@@ -2134,7 +2227,8 @@ function loadVariant(id: string) {
   selectedPath = [];
   hasUnsavedChanges = false;
   redrawTree();
-  renderUI();
+  updateVariantSelectionUI();
+  updateSaveButton();
 }
 
 function isInsideTree(x: number, y: number) {

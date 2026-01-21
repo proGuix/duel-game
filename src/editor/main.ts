@@ -664,6 +664,22 @@ function makeVariantDropdown(
   const caretHeight = 8;
   const caretCenterX = caretX + 6;
   const caretCenterY = caretY + caretHeight / 2;
+  const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+  const mixColor = (a: number, b: number, t: number) => {
+    const ar = (a >> 16) & 0xff;
+    const ag = (a >> 8) & 0xff;
+    const ab = a & 0xff;
+    const br = (b >> 16) & 0xff;
+    const bg = (b >> 8) & 0xff;
+    const bb = b & 0xff;
+    const rr = Math.round(lerp(ar, br, t));
+    const rg = Math.round(lerp(ag, bg, t));
+    const rb = Math.round(lerp(ab, bb, t));
+    return (rr << 16) | (rg << 8) | rb;
+  };
+  let fieldFocusMix = 0;
+  let fieldFocusRaf = 0;
+  const fieldFocusAnim = { active: false, start: 0, duration: 180, from: 0, to: 0 };
   const caretAnimState = {
     angle: 0,
     target: 0,
@@ -694,14 +710,16 @@ function makeVariantDropdown(
     }
   };
   const isFieldFocused = () => state.focusMode !== 'none' || state.menuOpen;
-  const drawCaret = (focused: boolean) => {
+  const drawCaret = () => {
     const caretAngle = caretAnimState.angle;
     caret.clear();
     caret.moveTo(caretX, caretY);
     caret.lineTo(caretX + 12, caretY);
     caret.lineTo(caretX + 6, caretY + caretHeight);
     caret.lineTo(caretX, caretY);
-    caret.fill({ color: focused ? 0x5aa7ff : 0x9ab4e4, alpha: 0.9 });
+    const baseColor = 0x9ab4e4;
+    const focusColor = 0x5aa7ff;
+    caret.fill({ color: mixColor(baseColor, focusColor, fieldFocusMix), alpha: 0.9 });
     caret.pivot.set(caretCenterX, caretCenterY);
     caret.position.set(caretCenterX, caretCenterY);
     caret.rotation = caretAngle;
@@ -725,17 +743,48 @@ function makeVariantDropdown(
     fieldEdge.fill({ color: 0x0b111e, alpha: 0.5 });
   };
 
-  const drawDropdown = (focused: boolean) => {
+  const drawDropdown = () => {
     bg.clear();
     bg.roundRect(0, 0, w, h, 10);
-    bg.fill({ color: 0x1a2030, alpha: focused ? 0.55 : 0.4 });
-    bg.stroke({ width: 1, color: focused ? 0x5aa7ff : 0x2a3343, alpha: focused ? 0.9 : 0.7 });
-    drawCaret(focused);
+    bg.fill({ color: 0x1a2030, alpha: lerp(0.4, 0.55, fieldFocusMix) });
+    bg.stroke({ width: 1, color: mixColor(0x2a3343, 0x5aa7ff, fieldFocusMix), alpha: lerp(0.7, 0.9, fieldFocusMix) });
+    drawCaret();
     drawFieldGlow();
   };
-  caretAnimState.draw = () => drawCaret(isFieldFocused());
+  const runFieldFocusAnim = () => {
+    if (!fieldFocusAnim.active) {
+      fieldFocusRaf = 0;
+      return;
+    }
+    const now = performance.now();
+    const raw = Math.min(1, (now - fieldFocusAnim.start) / fieldFocusAnim.duration);
+    const eased = 1 - Math.pow(1 - raw, 3);
+    fieldFocusMix = fieldFocusAnim.from + (fieldFocusAnim.to - fieldFocusAnim.from) * eased;
+    drawDropdown();
+    if (raw < 1) {
+      fieldFocusRaf = requestAnimationFrame(runFieldFocusAnim);
+      return;
+    }
+    fieldFocusMix = fieldFocusAnim.to;
+    fieldFocusAnim.active = false;
+    fieldFocusRaf = 0;
+  };
+  const setFieldFocus = (focused: boolean) => {
+    const next = focused ? 1 : 0;
+    if (fieldFocusAnim.active && fieldFocusAnim.to === next) return;
+    if (!fieldFocusAnim.active && Math.abs(fieldFocusMix - next) < 0.001) return;
+    fieldFocusAnim.active = true;
+    fieldFocusAnim.start = performance.now();
+    fieldFocusAnim.from = fieldFocusMix;
+    fieldFocusAnim.to = next;
+    if (!fieldFocusRaf) {
+      fieldFocusRaf = requestAnimationFrame(runFieldFocusAnim);
+    }
+  };
+  fieldFocusMix = isFieldFocused() ? 1 : 0;
+  caretAnimState.draw = () => drawCaret();
   setCaretTarget(state.menuOpen);
-  drawDropdown(isFieldFocused());
+  drawDropdown();
   container.addChild(bg, fieldGlow, fieldEdge, label, caret);
 
   const menu = new Container();
@@ -778,13 +827,13 @@ function makeVariantDropdown(
       py <= bounds.y + bounds.height;
     if (!state.menuOpen) {
       state.focusMode = inside ? 'mouse' : 'none';
-      drawDropdown(isFieldFocused());
+      setFieldFocus(isFieldFocused());
     }
   };
 
   const syncHoverFromPointer = () => {
     if (state.focusMode === 'keyboard' && !state.menuOpen) {
-      drawDropdown(true);
+      setFieldFocus(true);
       return;
     }
     if (state.lastPointer.x < 0) return;
@@ -795,7 +844,7 @@ function makeVariantDropdown(
       state.lastPointer.y >= bounds.y &&
       state.lastPointer.y <= bounds.y + bounds.height;
     state.focusMode = dropdownHover ? 'mouse' : 'none';
-    drawDropdown(isFieldFocused());
+    setFieldFocus(isFieldFocused());
   };
 
   const updateClosedTooltip = () => {
@@ -1571,13 +1620,13 @@ function makeVariantDropdown(
         state.lastPointer.y <= fieldBounds.y + fieldBounds.height;
       if (!overField) {
         state.focusMode = 'none';
-        drawDropdown(false);
+        setFieldFocus(false);
       }
     }
     if (reason === 'keyboard') {
       state.focusMode = 'keyboard';
       state.showClosedTooltip = true;
-      drawDropdown(true);
+      setFieldFocus(true);
       hideTooltip();
       updateClosedTooltip();
     }
@@ -1659,7 +1708,7 @@ function makeVariantDropdown(
       return;
     }
     if (e?.global) {
-      drawDropdown(true);
+      setFieldFocus(true);
     }
     menu.visible = true;
     state.menuOpen = true;
@@ -1705,7 +1754,7 @@ function makeVariantDropdown(
     label.text = labelFull;
     labelTruncated = applyEllipsis(label, labelFull, w - 40);
     label.position.set(12, h / 2 - label.height / 2);
-    drawDropdown(isFieldFocused());
+    setFieldFocus(isFieldFocused());
     if (state.menuOpen) {
       rebuildMenu();
     }
@@ -1739,13 +1788,13 @@ function makeVariantDropdown(
       state.focusMode = inside ? 'mouse' : 'none';
       state.showClosedTooltip = false;
       hideTooltip();
-      drawDropdown(isFieldFocused());
+      setFieldFocus(isFieldFocused());
       updateClosedTooltip();
       return;
     }
     if (inside !== (state.focusMode !== 'none')) {
       state.focusMode = inside ? 'mouse' : 'none';
-      drawDropdown(isFieldFocused());
+      setFieldFocus(isFieldFocused());
       updateClosedTooltip();
     }
     if (state.showClosedTooltip && state.focusMode === 'none') {
@@ -1766,7 +1815,7 @@ function makeVariantDropdown(
       pos.y >= bounds.y &&
       pos.y <= bounds.y + bounds.height;
     state.focusMode = inside ? 'mouse' : 'none';
-    drawDropdown(isFieldFocused());
+    setFieldFocus(isFieldFocused());
     updateClosedTooltip();
   };
   const handleWindowKeyDown = (e: KeyboardEvent) => {
@@ -1820,7 +1869,7 @@ function makeVariantDropdown(
   const onFieldOver = (e: any) => {
     dropdownHover = true;
     state.focusMode = 'mouse';
-    drawDropdown(true);
+    setFieldFocus(true);
     showFieldTooltip(e);
   };
   const onFieldOut = (e: any) => {

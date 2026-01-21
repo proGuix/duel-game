@@ -744,12 +744,18 @@ function makeVariantDropdown(
   fieldGlow.filters = [new BlurFilter({ strength: 8, quality: 4 })];
   const fieldEdge = new Graphics();
   fieldEdge.eventMode = 'none';
+  const idleAnim = { active: false, start: 0, delay: 0, period: 2600 };
+  let idlePulse = 0;
+  let idleRaf = 0;
+  let idleTimeout: number | null = null;
   const drawFieldGlow = () => {
     fieldGlow.clear();
     const inset = 6;
     const band = 4;
     fieldGlow.roundRect(inset, inset, w - inset * 2, band, 5);
-    fieldGlow.fill({ color: 0x6aaeff, alpha: 0.3 });
+    const baseAlpha = 0.3;
+    const idleBoost = idleAnim.active ? idlePulse * 0.4 : 0;
+    fieldGlow.fill({ color: 0x6aaeff, alpha: baseAlpha + idleBoost });
 
     fieldEdge.clear();
     fieldEdge.roundRect(6, h - 4, w - 12, 3, 6);
@@ -796,6 +802,57 @@ function makeVariantDropdown(
   };
   const clickAnim = { active: false, start: 0, duration: 240 };
   let clickRaf = 0;
+  const runIdleAnim = () => {
+    if (!idleAnim.active) {
+      idleRaf = 0;
+      return;
+    }
+    const now = performance.now();
+    const t = (now - idleAnim.start) / idleAnim.period;
+    idlePulse = 0.5 - 0.5 * Math.cos(t * Math.PI * 2);
+    drawDropdown();
+    idleRaf = requestAnimationFrame(runIdleAnim);
+  };
+  const startIdleAnim = () => {
+    if (idleAnim.active) return;
+    idleAnim.active = true;
+    idleAnim.start = performance.now();
+    if (!idleRaf) {
+      idleRaf = requestAnimationFrame(runIdleAnim);
+    }
+  };
+  const startIdleDelay = () => {
+    if (idleAnim.active || idleTimeout) return;
+    idleTimeout = window.setTimeout(() => {
+      idleTimeout = null;
+      if (!state.menuOpen && state.focusMode !== 'none') {
+        startIdleAnim();
+      }
+    }, idleAnim.delay);
+  };
+  const refreshIdleDelay = () => {
+    if (idleAnim.active) return;
+    if (idleTimeout) {
+      window.clearTimeout(idleTimeout);
+      idleTimeout = null;
+    }
+    startIdleDelay();
+  };
+  const stopIdleAnim = () => {
+    if (idleTimeout) {
+      window.clearTimeout(idleTimeout);
+      idleTimeout = null;
+    }
+    if (idleAnim.active) {
+      idleAnim.active = false;
+    }
+    idlePulse = 0;
+    if (idleRaf) {
+      cancelAnimationFrame(idleRaf);
+      idleRaf = 0;
+    }
+    drawDropdown();
+  };
   const runClickAnim = () => {
     if (!clickAnim.active) {
       clickRaf = 0;
@@ -1687,6 +1744,11 @@ function makeVariantDropdown(
       hideTooltip();
       updateClosedTooltip();
     }
+    if (state.focusMode !== 'none') {
+      refreshIdleDelay();
+    } else {
+      stopIdleAnim();
+    }
     const bounds = menu.getLocalBounds();
     const globalPos = menu.getGlobalPosition();
     const texture = app.renderer.generateTexture(menu);
@@ -1765,6 +1827,7 @@ function makeVariantDropdown(
       return;
     }
     triggerClickAnim();
+    stopIdleAnim();
     if (e?.global) {
       setFieldFocus(true);
     }
@@ -1844,18 +1907,29 @@ function makeVariantDropdown(
       pos.x <= bounds.x + bounds.width &&
       pos.y >= bounds.y &&
       pos.y <= bounds.y + bounds.height;
+    dropdownHover = inside;
     if (wasKeyboard) {
       state.focusMode = inside ? 'mouse' : 'none';
       state.showClosedTooltip = false;
       hideTooltip();
       setFieldFocus(isFieldFocused());
       updateClosedTooltip();
+      if (inside) {
+        refreshIdleDelay();
+      } else {
+        stopIdleAnim();
+      }
       return;
     }
     if (inside !== (state.focusMode !== 'none')) {
       state.focusMode = inside ? 'mouse' : 'none';
       setFieldFocus(isFieldFocused());
       updateClosedTooltip();
+    }
+    if (inside) {
+      refreshIdleDelay();
+    } else {
+      stopIdleAnim();
     }
     if (state.showClosedTooltip && state.focusMode === 'none') {
       state.showClosedTooltip = false;
@@ -1877,6 +1951,11 @@ function makeVariantDropdown(
     state.focusMode = inside ? 'mouse' : 'none';
     setFieldFocus(isFieldFocused());
     updateClosedTooltip();
+    if (inside) {
+      refreshIdleDelay();
+    } else {
+      stopIdleAnim();
+    }
   };
   const handleWindowKeyDown = (e: KeyboardEvent) => {
     if (activeNamePrompt) return;
@@ -1925,26 +2004,46 @@ function makeVariantDropdown(
       window.removeEventListener('keydown', windowKeyHandler);
       windowKeyHandler = null;
     }
+    stopIdleAnim();
   };
   const onFieldOver = (e: any) => {
     dropdownHover = true;
     state.focusMode = 'mouse';
     setFieldFocus(true);
     showFieldTooltip(e);
+    if (!state.menuOpen) {
+      refreshIdleDelay();
+    }
   };
   const onFieldOut = (e: any) => {
-    dropdownHover = false;
     const pos = e.global ?? { x: 0, y: 0 };
+    const bounds = container.getBounds();
+    const inside =
+      pos.x >= bounds.x &&
+      pos.x <= bounds.x + bounds.width &&
+      pos.y >= bounds.y &&
+      pos.y <= bounds.y + bounds.height;
+    if (inside) return;
+    dropdownHover = false;
     updateFocusFromPoint(pos.x, pos.y);
     hideTooltip();
+    stopIdleAnim();
   };
   bg.on('pointerover', onFieldOver);
   bg.on('pointerout', onFieldOut);
-  bg.on('pointermove', showFieldTooltip);
+  bg.on('pointermove', (e: any) => {
+    showFieldTooltip(e);
+    if (!state.menuOpen) {
+      refreshIdleDelay();
+    }
+  });
 
 
   label.eventMode = 'static';
   const follow = (e: any) => {
+    if (!state.menuOpen) {
+      refreshIdleDelay();
+    }
     if (!labelTruncated) {
       hideTooltip();
       return;
@@ -1961,7 +2060,12 @@ function makeVariantDropdown(
   caret.eventMode = 'static';
   caret.on('pointerover', onFieldOver);
   caret.on('pointerout', onFieldOut);
-  caret.on('pointermove', showFieldTooltip);
+  caret.on('pointermove', (e: any) => {
+    showFieldTooltip(e);
+    if (!state.menuOpen) {
+      refreshIdleDelay();
+    }
+  });
 
   updateClosedTooltip();
 

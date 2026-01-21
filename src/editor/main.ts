@@ -680,6 +680,19 @@ function makeVariantDropdown(
   let fieldFocusMix = 0;
   let fieldFocusRaf = 0;
   const fieldFocusAnim = { active: false, start: 0, duration: 180, from: 0, to: 0 };
+  const fieldGroup = new Container();
+  fieldGroup.pivot.set(w / 2, h / 2);
+  fieldGroup.position.set(w / 2, h / 2);
+  const clickGlow = new Graphics();
+  clickGlow.eventMode = 'none';
+  clickGlow.alpha = 0;
+  const drawClickGlow = () => {
+    clickGlow.clear();
+    clickGlow.roundRect(-1, -1, w + 2, h + 2, 12);
+    clickGlow.fill({ color: 0x5aa7ff, alpha: 0.18 });
+    clickGlow.stroke({ width: 1, color: 0x5aa7ff, alpha: 0.6 });
+  };
+  drawClickGlow();
   const caretAnimState = {
     angle: 0,
     target: 0,
@@ -781,11 +794,53 @@ function makeVariantDropdown(
       fieldFocusRaf = requestAnimationFrame(runFieldFocusAnim);
     }
   };
+  const clickAnim = { active: false, start: 0, duration: 240 };
+  let clickRaf = 0;
+  const runClickAnim = () => {
+    if (!clickAnim.active) {
+      clickRaf = 0;
+      return;
+    }
+    const now = performance.now();
+    const t = Math.min(1, (now - clickAnim.start) / clickAnim.duration);
+    const easeOut = (x: number) => 1 - Math.pow(1 - x, 3);
+    const p1 = 0.35;
+    const p2 = 0.75;
+    let scale = 1;
+    if (t < p1) {
+      scale = lerp(1, 0.99, easeOut(t / p1));
+    } else if (t < p2) {
+      scale = lerp(0.99, 1.01, easeOut((t - p1) / (p2 - p1)));
+    } else {
+      scale = lerp(1.01, 1, easeOut((t - p2) / (1 - p2)));
+    }
+    const nudge = Math.sin(Math.PI * t) * 1;
+    fieldGroup.scale.set(scale);
+    fieldGroup.position.set(w / 2, h / 2 + nudge);
+    clickGlow.alpha = Math.sin(Math.PI * t) * 0.45;
+    if (t < 1) {
+      clickRaf = requestAnimationFrame(runClickAnim);
+      return;
+    }
+    clickAnim.active = false;
+    clickGlow.alpha = 0;
+    fieldGroup.scale.set(1);
+    fieldGroup.position.set(w / 2, h / 2);
+    clickRaf = 0;
+  };
+  const triggerClickAnim = () => {
+    clickAnim.active = true;
+    clickAnim.start = performance.now();
+    if (!clickRaf) {
+      clickRaf = requestAnimationFrame(runClickAnim);
+    }
+  };
   fieldFocusMix = isFieldFocused() ? 1 : 0;
   caretAnimState.draw = () => drawCaret();
   setCaretTarget(state.menuOpen);
   drawDropdown();
-  container.addChild(bg, fieldGlow, fieldEdge, label, caret);
+  fieldGroup.addChild(bg, clickGlow, fieldGlow, fieldEdge, label, caret);
+  container.addChild(fieldGroup);
 
   const menu = new Container();
   menu.position.set(0, h + 6);
@@ -1598,7 +1653,9 @@ function makeVariantDropdown(
 
   const closeMenu = (reason: 'pointer' | 'keyboard' | 'program' = 'program', onClosed?: () => void) => {
     state.menuOpen = false;
-    state.menuOpen = false;
+    if (reason !== 'program') {
+      triggerClickAnim();
+    }
     setCaretTarget(false);
     if (reason !== 'keyboard') {
       syncHoverFromPointer();
@@ -1707,6 +1764,7 @@ function makeVariantDropdown(
       closeMenu('pointer');
       return;
     }
+    triggerClickAnim();
     if (e?.global) {
       setFieldFocus(true);
     }
@@ -1737,7 +1795,9 @@ function makeVariantDropdown(
   [bg, label, caret].forEach((sprite) => {
     sprite.eventMode = 'static';
     sprite.cursor = 'pointer';
-    sprite.on('pointertap', (evt) => openMenu(evt));
+    sprite.on('pointertap', (evt) => {
+      openMenu(evt);
+    });
   });
 
   bg.eventMode = 'static';

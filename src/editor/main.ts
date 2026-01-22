@@ -979,6 +979,14 @@ function makeVariantDropdown(
   let windowPointerMoveHandler: ((e: PointerEvent) => void) | null = null;
   let windowPointerDownHandler: ((e: PointerEvent) => void) | null = null;
   let windowKeyHandler: ((e: KeyboardEvent) => void) | null = null;
+  const isPrimaryClick = (e: any) => {
+    const btn =
+      e?.button ??
+      e?.data?.button ??
+      e?.data?.originalEvent?.button ??
+      e?.originalEvent?.button;
+    return btn === undefined || btn === 0;
+  };
 
   const resolveCursorAtPoint = (px: number, py: number) => {
     const boundary = app.renderer.events?.rootBoundary;
@@ -1016,6 +1024,7 @@ function makeVariantDropdown(
     menu.hitArea = new Rectangle(0, 0, w, menuHeight);
     menu.on('pointerdown', (e: any) => {
       e.stopPropagation();
+      if (!isPrimaryClick(e)) return;
       const global = e.global ?? { x: 0, y: 0 };
       const local = menu.toLocal(global);
       const idx = hitItemIndex(local.x, local.y + scrollY);
@@ -1322,7 +1331,9 @@ function makeVariantDropdown(
         menuFocusIndex = idx;
       });
       item.on('pointerout', () => {});
-      item.on('pointertap', () => {
+      item.on('pointertap', (evt: any) => {
+        evt.stopPropagation();
+        if (!isPrimaryClick(evt)) return;
         closeMenu('pointer');
         if (opt.id !== currentDescriptor.id) {
           requestVariantSwitch(opt.id);
@@ -1435,13 +1446,16 @@ function makeVariantDropdown(
       };
 
       const onThumbDown = (e: PointerEvent) => {
+        e.stopPropagation();
+        if (!isPrimaryClick(e)) return;
         dragging = true;
         dragOffset = toLocalY(e) - (thumb?.y ?? 0);
         setTrackHover(true);
-        e.stopPropagation();
       };
 
       const onTrackDown = (e: PointerEvent) => {
+        e.stopPropagation();
+        if (!isPrimaryClick(e)) return;
         const clickY = toLocalY(e) - trackPad;
         setScrollFromThumb(clickY - thumbHeight / 2 + trackInnerY);
         setTrackHover(true);
@@ -1809,6 +1823,7 @@ function makeVariantDropdown(
   };
 
   const handleOutside = (evt: PointerEvent) => {
+    if (!isPrimaryClick(evt)) return;
     const { x: px, y: py } = toCanvasPoint(evt.clientX, evt.clientY);
     const bounds = container.getBounds();
     const menuBounds = menu.getBounds();
@@ -1859,6 +1874,8 @@ function makeVariantDropdown(
     sprite.eventMode = 'static';
     sprite.cursor = 'pointer';
     sprite.on('pointertap', (evt) => {
+      evt.stopPropagation();
+      if (!isPrimaryClick(evt)) return;
       openMenu(evt);
     });
   });
@@ -1937,6 +1954,7 @@ function makeVariantDropdown(
     }
   };
   const handleWindowPointerDown = (e: PointerEvent) => {
+    if (!isPrimaryClick(e)) return;
     if (state.focusMode !== 'keyboard' || state.menuOpen) return;
     const pos = toCanvasPoint(e.clientX, e.clientY);
     state.focusMode = 'none';

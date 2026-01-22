@@ -911,6 +911,7 @@ function makeVariantDropdown(
   tooltip.zIndex = 9999;
   const tooltipBg = new Graphics();
   const tooltipText = createBitmapTextNode('', { fill: 0xdfe8ff, fontSize: 12, fontWeight: '500' });
+  const tooltipMeasure = createBitmapTextNode('', { fill: 0xdfe8ff, fontSize: 12, fontWeight: '500' });
   tooltip.addChild(tooltipBg, tooltipText);
   uiLayer.addChild(tooltip);
 
@@ -918,20 +919,75 @@ function makeVariantDropdown(
     tooltip.visible = false;
   };
 
-  const showTooltip = (content: string, globalX: number, globalY: number) => {
-    tooltipText.text = content;
+  const measureWidth = (text: string) => {
+    tooltipMeasure.text = text;
+    return tooltipMeasure.width;
+  };
+  const wrapTooltipText = (content: string, maxWidth: number) => {
+    const words = content.split(/\s+/).filter((word) => word.length > 0);
+    const lines: string[] = [];
+    let line = '';
+    for (const word of words.length ? words : [content]) {
+      const test = line ? `${line} ${word}` : word;
+      if (measureWidth(test) <= maxWidth) {
+        line = test;
+        continue;
+      }
+      if (line) lines.push(line);
+      if (measureWidth(word) <= maxWidth) {
+        line = word;
+        continue;
+      }
+      let chunk = '';
+      for (const ch of word) {
+        const next = chunk + ch;
+        if (measureWidth(next) > maxWidth && chunk.length > 0) {
+          lines.push(chunk);
+          chunk = ch;
+        } else {
+          chunk = next;
+        }
+      }
+      line = chunk;
+    }
+    if (line) lines.push(line);
+    return lines.join('\n');
+  };
+
+  const showTooltip = (content: string, globalX: number, globalY: number, opts?: { pin?: boolean }) => {
+    const screen = app.screen;
     const padding = 8;
+    const margin = 10;
+    const maxWidth = Math.max(140, Math.min(320, screen.width - margin * 2));
+    tooltipText.text = wrapTooltipText(content, maxWidth - padding * 2);
     tooltipBg.clear();
     tooltipBg.roundRect(0, 0, tooltipText.width + padding * 2, tooltipText.height + padding * 2, 8);
     tooltipBg.fill({ color: 0x101521, alpha: 0.95 });
     tooltipBg.stroke({ width: 1, color: 0x4da3ff, alpha: 0.6 });
     tooltipText.position.set(padding, padding);
-    tooltip.position.set(globalX + 10, globalY + 10);
+    const offset = opts?.pin ? 0 : 10;
+    let x = globalX + offset;
+    let y = globalY + offset;
+    const width = tooltipText.width + padding * 2;
+    const height = tooltipText.height + padding * 2;
+    if (x + width > screen.width - margin) {
+      x = screen.width - margin - width;
+    }
+    if (x < margin) {
+      x = margin;
+    }
+    if (y + height > screen.height - margin) {
+      y = globalY - height - offset;
+    }
+    if (y < margin) {
+      y = margin;
+    }
+    tooltip.position.set(x, y);
     tooltip.visible = true;
   };
 
   const updateFocusFromPoint = (px: number, py: number) => {
-    const bounds = container.getBounds();
+    const bounds = bg.getBounds();
     const inside =
       px >= bounds.x &&
       px <= bounds.x + bounds.width &&
@@ -949,7 +1005,7 @@ function makeVariantDropdown(
       return;
     }
     if (state.lastPointer.x < 0) return;
-    const bounds = container.getBounds();
+    const bounds = bg.getBounds();
     dropdownHover =
       state.lastPointer.x >= bounds.x &&
       state.lastPointer.x <= bounds.x + bounds.width &&
@@ -969,8 +1025,7 @@ function makeVariantDropdown(
       const bounds = bg.getBounds();
       const tooltipX = bounds.x + 8;
       const tooltipY = bounds.y + bounds.height * 0.75;
-      showTooltip(labelFull, tooltipX, tooltipY);
-      tooltip.position.set(tooltipX, tooltipY);
+      showTooltip(labelFull, tooltipX, tooltipY, { pin: true });
     } else {
       hideTooltip();
     }
@@ -1804,7 +1859,7 @@ function makeVariantDropdown(
       menuPointerMoveHandler = null;
     }
     if (reason !== 'keyboard' && labelTruncated && state.lastPointer.x >= 0) {
-      const bounds = container.getBounds();
+      const bounds = bg.getBounds();
       const overField =
         state.lastPointer.x >= bounds.x &&
         state.lastPointer.x <= bounds.x + bounds.width &&
@@ -1825,7 +1880,7 @@ function makeVariantDropdown(
   const handleOutside = (evt: PointerEvent) => {
     if (!isPrimaryClick(evt)) return;
     const { x: px, y: py } = toCanvasPoint(evt.clientX, evt.clientY);
-    const bounds = container.getBounds();
+    const bounds = bg.getBounds();
     const menuBounds = menu.getBounds();
     const left = Math.min(bounds.x, menuBounds.x);
     const right = Math.max(bounds.x + bounds.width, menuBounds.x + menuBounds.width);
@@ -1918,7 +1973,7 @@ function makeVariantDropdown(
     state.lastPointer = { x: pos.x, y: pos.y };
     if (state.menuOpen) return;
     const wasKeyboard = state.focusMode === 'keyboard';
-    const bounds = container.getBounds();
+    const bounds = bg.getBounds();
     const inside =
       pos.x >= bounds.x &&
       pos.x <= bounds.x + bounds.width &&
@@ -1948,6 +2003,9 @@ function makeVariantDropdown(
     } else {
       stopIdleAnim();
     }
+    if (!inside && state.focusMode === 'none' && !state.menuOpen) {
+      hideTooltip();
+    }
     if (state.showClosedTooltip && state.focusMode === 'none') {
       state.showClosedTooltip = false;
       updateClosedTooltip();
@@ -1960,7 +2018,7 @@ function makeVariantDropdown(
     state.focusMode = 'none';
     state.showClosedTooltip = false;
     hideTooltip();
-    const bounds = container.getBounds();
+    const bounds = bg.getBounds();
     const inside =
       pos.x >= bounds.x &&
       pos.x <= bounds.x + bounds.width &&
@@ -2035,7 +2093,7 @@ function makeVariantDropdown(
   };
   const onFieldOut = (e: any) => {
     const pos = e.global ?? { x: 0, y: 0 };
-    const bounds = container.getBounds();
+    const bounds = bg.getBounds();
     const inside =
       pos.x >= bounds.x &&
       pos.x <= bounds.x + bounds.width &&

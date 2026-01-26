@@ -960,7 +960,7 @@ function makeVariantDropdown(
   const tooltipLayout = {
     padding: 8,
     margin: 10,
-    gap: 15,
+    gap: 30,
     radius: 8,
     arrowSize: 6,
     arrowWidth: 12,
@@ -971,8 +971,6 @@ function makeVariantDropdown(
     visible: false,
     currentX: 0,
     currentY: 0,
-    targetX: 0,
-    targetY: 0,
     side: 'top' as 'top' | 'bottom' | 'left' | 'right',
     rectX: 0,
     rectY: 0,
@@ -980,14 +978,9 @@ function makeVariantDropdown(
     baseH: 0,
     anchor: null as { x: number; y: number; width: number; height: number } | null
   };
-  let tooltipAnimRaf = 0;
   const hideTooltip = () => {
     tooltipState.visible = false;
     tooltipState.anchor = null;
-    if (tooltipAnimRaf) {
-      cancelAnimationFrame(tooltipAnimRaf);
-      tooltipAnimRaf = 0;
-    }
     tooltip.visible = false;
   };
 
@@ -1046,26 +1039,6 @@ function makeVariantDropdown(
     }
     tooltipText.position.set(rectX + padding, rectY + padding);
     tooltip.visible = true;
-  };
-
-  const animateTooltip = () => {
-    if (!tooltipState.visible) {
-      tooltipAnimRaf = 0;
-      return;
-    }
-    const dx = tooltipState.targetX - tooltipState.currentX;
-    const dy = tooltipState.targetY - tooltipState.currentY;
-    if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) {
-      tooltipState.currentX = tooltipState.targetX;
-      tooltipState.currentY = tooltipState.targetY;
-      drawTooltipAt();
-      tooltipAnimRaf = 0;
-      return;
-    }
-    tooltipState.currentX += dx * 0.2;
-    tooltipState.currentY += dy * 0.2;
-    drawTooltipAt();
-    tooltipAnimRaf = requestAnimationFrame(animateTooltip);
   };
 
   type TooltipSide = 'top' | 'bottom' | 'left' | 'right';
@@ -1201,35 +1174,16 @@ function makeVariantDropdown(
       }
     }
 
-    const prevAnchor = tooltipState.anchor;
-    const prevAx = prevAnchor ? prevAnchor.x + prevAnchor.width / 2 : 0;
-    const prevAy = prevAnchor ? prevAnchor.y + prevAnchor.height / 2 : 0;
-    const anchorShift = prevAnchor ? Math.hypot(ax - prevAx, ay - prevAy) : Number.POSITIVE_INFINITY;
-    const sameAnchor = !!(
-      tooltipState.visible &&
-      prevAnchor &&
-      anchorShift < 6 &&
-      Math.abs(prevAnchor.width - anchor.width) < 1 &&
-      Math.abs(prevAnchor.height - anchor.height) < 1
-    );
-
     tooltipState.anchor = anchor;
     tooltipState.baseW = baseW;
     tooltipState.baseH = baseH;
     tooltipState.rectX = chosen.rectX;
     tooltipState.rectY = chosen.rectY;
     tooltipState.side = chosen.side;
-    tooltipState.targetX = chosen.x;
-    tooltipState.targetY = chosen.y;
-    if (!tooltipState.visible || !sameAnchor) {
-      tooltipState.currentX = chosen.x;
-      tooltipState.currentY = chosen.y;
-    }
+    tooltipState.currentX = chosen.x;
+    tooltipState.currentY = chosen.y;
     tooltipState.visible = true;
     drawTooltipAt();
-    if (!tooltipAnimRaf) {
-      tooltipAnimRaf = requestAnimationFrame(animateTooltip);
-    }
   };
 
   const showDropdownTooltip = (content: string, anchor: { x: number; y: number; width: number; height: number }) => {

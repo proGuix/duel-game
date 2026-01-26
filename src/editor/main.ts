@@ -915,10 +915,6 @@ function makeVariantDropdown(
   tooltip.addChild(tooltipBg, tooltipText);
   uiLayer.addChild(tooltip);
 
-  const hideTooltip = () => {
-    tooltip.visible = false;
-  };
-
   const measureWidth = (text: string) => {
     tooltipMeasure.text = text;
     return tooltipMeasure.width;
@@ -954,36 +950,290 @@ function makeVariantDropdown(
     return lines.join('\n');
   };
 
-  const showTooltip = (content: string, globalX: number, globalY: number, opts?: { pin?: boolean }) => {
-    const screen = app.screen;
-    const padding = 8;
-    const margin = 10;
-    const maxWidth = Math.max(140, Math.min(320, screen.width - margin * 2));
-    tooltipText.text = wrapTooltipText(content, maxWidth - padding * 2);
+  const rectFromBounds = (bounds: { x: number; y: number; width: number; height: number }) => ({
+    x: bounds.x,
+    y: bounds.y,
+    width: bounds.width,
+    height: bounds.height
+  });
+
+  const tooltipLayout = {
+    padding: 8,
+    margin: 10,
+    gap: 15,
+    radius: 8,
+    arrowSize: 6,
+    arrowWidth: 12,
+    minWidth: 140,
+    maxWidth: 320
+  };
+  const tooltipState = {
+    visible: false,
+    currentX: 0,
+    currentY: 0,
+    targetX: 0,
+    targetY: 0,
+    side: 'top' as 'top' | 'bottom' | 'left' | 'right',
+    rectX: 0,
+    rectY: 0,
+    baseW: 0,
+    baseH: 0,
+    anchor: null as { x: number; y: number; width: number; height: number } | null
+  };
+  let tooltipAnimRaf = 0;
+  const hideTooltip = () => {
+    tooltipState.visible = false;
+    tooltipState.anchor = null;
+    if (tooltipAnimRaf) {
+      cancelAnimationFrame(tooltipAnimRaf);
+      tooltipAnimRaf = 0;
+    }
+    tooltip.visible = false;
+  };
+
+  const drawTooltipAt = () => {
+    if (!tooltipState.anchor) return;
+    const { currentX, currentY, rectX, rectY, baseW, baseH, side } = tooltipState;
+    const { padding, radius, arrowSize, arrowWidth } = tooltipLayout;
+    const ax = tooltipState.anchor.x + tooltipState.anchor.width / 2;
+    const ay = tooltipState.anchor.y + tooltipState.anchor.height / 2;
+    tooltip.position.set(currentX, currentY);
     tooltipBg.clear();
-    tooltipBg.roundRect(0, 0, tooltipText.width + padding * 2, tooltipText.height + padding * 2, 8);
+    tooltipBg.roundRect(rectX, rectY, baseW, baseH, radius);
     tooltipBg.fill({ color: 0x101521, alpha: 0.95 });
     tooltipBg.stroke({ width: 1, color: 0x4da3ff, alpha: 0.6 });
-    tooltipText.position.set(padding, padding);
-    const offset = opts?.pin ? 0 : 10;
-    let x = globalX + offset;
-    let y = globalY + offset;
-    const width = tooltipText.width + padding * 2;
-    const height = tooltipText.height + padding * 2;
-    if (x + width > screen.width - margin) {
-      x = screen.width - margin - width;
+    const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
+    const clampX = (v: number) => clamp(v, rectX + radius + arrowWidth / 2, rectX + baseW - radius - arrowWidth / 2);
+    const clampY = (v: number) => clamp(v, rectY + radius + arrowWidth / 2, rectY + baseH - radius - arrowWidth / 2);
+    const localAx = ax - currentX;
+    const localAy = ay - currentY;
+    if (side === 'top') {
+      const arrowX = clampX(localAx);
+      const y = rectY;
+      tooltipBg.moveTo(arrowX - arrowWidth / 2, y);
+      tooltipBg.lineTo(arrowX + arrowWidth / 2, y);
+      tooltipBg.lineTo(arrowX, y - arrowSize);
+      tooltipBg.closePath();
+      tooltipBg.fill({ color: 0x101521, alpha: 0.95 });
+      tooltipBg.stroke({ width: 1, color: 0x4da3ff, alpha: 0.6 });
+    } else if (side === 'bottom') {
+      const arrowX = clampX(localAx);
+      const y = rectY + baseH;
+      tooltipBg.moveTo(arrowX - arrowWidth / 2, y);
+      tooltipBg.lineTo(arrowX + arrowWidth / 2, y);
+      tooltipBg.lineTo(arrowX, y + arrowSize);
+      tooltipBg.closePath();
+      tooltipBg.fill({ color: 0x101521, alpha: 0.95 });
+      tooltipBg.stroke({ width: 1, color: 0x4da3ff, alpha: 0.6 });
+    } else if (side === 'left') {
+      const arrowY = clampY(localAy);
+      const x = rectX;
+      tooltipBg.moveTo(x, arrowY - arrowWidth / 2);
+      tooltipBg.lineTo(x, arrowY + arrowWidth / 2);
+      tooltipBg.lineTo(x - arrowSize, arrowY);
+      tooltipBg.closePath();
+      tooltipBg.fill({ color: 0x101521, alpha: 0.95 });
+      tooltipBg.stroke({ width: 1, color: 0x4da3ff, alpha: 0.6 });
+    } else {
+      const arrowY = clampY(localAy);
+      const x = rectX + baseW;
+      tooltipBg.moveTo(x, arrowY - arrowWidth / 2);
+      tooltipBg.lineTo(x, arrowY + arrowWidth / 2);
+      tooltipBg.lineTo(x + arrowSize, arrowY);
+      tooltipBg.closePath();
+      tooltipBg.fill({ color: 0x101521, alpha: 0.95 });
+      tooltipBg.stroke({ width: 1, color: 0x4da3ff, alpha: 0.6 });
     }
-    if (x < margin) {
-      x = margin;
-    }
-    if (y + height > screen.height - margin) {
-      y = globalY - height - offset;
-    }
-    if (y < margin) {
-      y = margin;
-    }
-    tooltip.position.set(x, y);
+    tooltipText.position.set(rectX + padding, rectY + padding);
     tooltip.visible = true;
+  };
+
+  const animateTooltip = () => {
+    if (!tooltipState.visible) {
+      tooltipAnimRaf = 0;
+      return;
+    }
+    const dx = tooltipState.targetX - tooltipState.currentX;
+    const dy = tooltipState.targetY - tooltipState.currentY;
+    if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) {
+      tooltipState.currentX = tooltipState.targetX;
+      tooltipState.currentY = tooltipState.targetY;
+      drawTooltipAt();
+      tooltipAnimRaf = 0;
+      return;
+    }
+    tooltipState.currentX += dx * 0.2;
+    tooltipState.currentY += dy * 0.2;
+    drawTooltipAt();
+    tooltipAnimRaf = requestAnimationFrame(animateTooltip);
+  };
+
+  type TooltipSide = 'top' | 'bottom' | 'left' | 'right';
+  type Rect = { x: number; y: number; width: number; height: number };
+  type TooltipCandidate = {
+    side: TooltipSide;
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+    rectX: number;
+    rectY: number;
+  };
+
+  const rectOverlapArea = (a: Rect, b: Rect) => {
+    const overlapW = Math.max(0, Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x));
+    const overlapH = Math.max(0, Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y));
+    return overlapW * overlapH;
+  };
+
+  const getDropdownAvoidRects = (): Rect[] => {
+    const rects: Rect[] = [rectFromBounds(bg.getBounds())];
+    if (menu.visible) {
+      const maskBounds = menuMask ? menuMask.getBounds() : null;
+      const hasMaskBounds = maskBounds && maskBounds.width > 0.5 && maskBounds.height > 0.5;
+      rects.push(rectFromBounds(hasMaskBounds ? maskBounds : menu.getBounds()));
+    }
+    return rects;
+  };
+
+  const candidateCenter = (candidate: TooltipCandidate, bodyW: number, bodyH: number) => ({
+    x: candidate.x + candidate.rectX + bodyW / 2,
+    y: candidate.y + candidate.rectY + bodyH / 2
+  });
+
+  const showTooltip = (
+    content: string,
+    anchor: { x: number; y: number; width: number; height: number },
+    opts?: { avoidRects?: Rect[] }
+  ) => {
+    const screen = app.screen;
+    const maxWidth = Math.max(tooltipLayout.minWidth, Math.min(tooltipLayout.maxWidth, screen.width));
+    tooltipText.text = wrapTooltipText(content, maxWidth - tooltipLayout.padding * 2);
+    const baseW = tooltipText.width + tooltipLayout.padding * 2;
+    const baseH = tooltipText.height + tooltipLayout.padding * 2;
+    if (baseW > screen.width || baseH > screen.height) {
+      hideTooltip();
+      return;
+    }
+    const { gap, arrowSize } = tooltipLayout;
+    const ax = anchor.x + anchor.width / 2;
+    const ay = anchor.y + anchor.height / 2;
+    const candidates: TooltipCandidate[] = [
+      {
+        side: 'bottom',
+        x: ax - baseW / 2,
+        y: anchor.y - gap - (baseH + arrowSize),
+        w: baseW,
+        h: baseH + arrowSize,
+        rectX: 0,
+        rectY: 0
+      },
+      {
+        side: 'top',
+        x: ax - baseW / 2,
+        y: anchor.y + anchor.height + gap,
+        w: baseW,
+        h: baseH + arrowSize,
+        rectX: 0,
+        rectY: arrowSize
+      },
+      {
+        side: 'left',
+        x: anchor.x + anchor.width + gap,
+        y: ay - baseH / 2,
+        w: baseW + arrowSize,
+        h: baseH,
+        rectX: arrowSize,
+        rectY: 0
+      },
+      {
+        side: 'right',
+        x: anchor.x - gap - (baseW + arrowSize),
+        y: ay - baseH / 2,
+        w: baseW + arrowSize,
+        h: baseH,
+        rectX: 0,
+        rectY: 0
+      }
+    ];
+
+    const fits = (candidate: TooltipCandidate) =>
+      candidate.x >= 0 &&
+      candidate.y >= 0 &&
+      candidate.x + candidate.w <= screen.width &&
+      candidate.y + candidate.h <= screen.height;
+
+    let pool = candidates.filter(fits);
+    if (!pool.length) {
+      hideTooltip();
+      return;
+    }
+
+    const avoidRects = opts?.avoidRects ?? [];
+    const overlapFor = (candidate: TooltipCandidate) => {
+      if (!avoidRects.length) return 0;
+      const rect = {
+        x: candidate.x + candidate.rectX,
+        y: candidate.y + candidate.rectY,
+        width: baseW,
+        height: baseH
+      };
+      return avoidRects.reduce((sum, avoid) => sum + rectOverlapArea(rect, avoid), 0);
+    };
+    const minOverlap = Math.min(...pool.map(overlapFor));
+    pool = pool.filter((candidate) => Math.abs(overlapFor(candidate) - minOverlap) < 0.01);
+
+    const canvasCenter = { x: screen.width / 2, y: screen.height / 2 };
+    let chosen = pool[0];
+    let bestDist = Math.hypot(
+      candidateCenter(chosen, baseW, baseH).x - canvasCenter.x,
+      candidateCenter(chosen, baseW, baseH).y - canvasCenter.y
+    );
+    for (let i = 1; i < pool.length; i += 1) {
+      const candidate = pool[i];
+      const dist = Math.hypot(
+        candidateCenter(candidate, baseW, baseH).x - canvasCenter.x,
+        candidateCenter(candidate, baseW, baseH).y - canvasCenter.y
+      );
+      if (dist < bestDist) {
+        chosen = candidate;
+        bestDist = dist;
+      }
+    }
+
+    const prevAnchor = tooltipState.anchor;
+    const prevAx = prevAnchor ? prevAnchor.x + prevAnchor.width / 2 : 0;
+    const prevAy = prevAnchor ? prevAnchor.y + prevAnchor.height / 2 : 0;
+    const anchorShift = prevAnchor ? Math.hypot(ax - prevAx, ay - prevAy) : Number.POSITIVE_INFINITY;
+    const sameAnchor = !!(
+      tooltipState.visible &&
+      prevAnchor &&
+      anchorShift < 6 &&
+      Math.abs(prevAnchor.width - anchor.width) < 1 &&
+      Math.abs(prevAnchor.height - anchor.height) < 1
+    );
+
+    tooltipState.anchor = anchor;
+    tooltipState.baseW = baseW;
+    tooltipState.baseH = baseH;
+    tooltipState.rectX = chosen.rectX;
+    tooltipState.rectY = chosen.rectY;
+    tooltipState.side = chosen.side;
+    tooltipState.targetX = chosen.x;
+    tooltipState.targetY = chosen.y;
+    if (!tooltipState.visible || !sameAnchor) {
+      tooltipState.currentX = chosen.x;
+      tooltipState.currentY = chosen.y;
+    }
+    tooltipState.visible = true;
+    drawTooltipAt();
+    if (!tooltipAnimRaf) {
+      tooltipAnimRaf = requestAnimationFrame(animateTooltip);
+    }
+  };
+
+  const showDropdownTooltip = (content: string, anchor: { x: number; y: number; width: number; height: number }) => {
+    showTooltip(content, anchor, { avoidRects: getDropdownAvoidRects() });
   };
 
   const updateFocusFromPoint = (px: number, py: number) => {
@@ -1022,10 +1272,7 @@ function makeVariantDropdown(
       return;
     }
     if (labelTruncated) {
-      const bounds = bg.getBounds();
-      const tooltipX = bounds.x + 8;
-      const tooltipY = bounds.y + bounds.height * 0.75;
-      showTooltip(labelFull, tooltipX, tooltipY, { pin: true });
+      showDropdownTooltip(labelFull, rectFromBounds(bg.getBounds()));
     } else {
       hideTooltip();
     }
@@ -1070,6 +1317,7 @@ function makeVariantDropdown(
   const rebuildMenu = () => {
     menu.removeChildren();
     const options = listBehaviorOptions();
+    const itemBoundsGetters: Array<() => { x: number; y: number; width: number; height: number }> = [];
     const menuPad = 6;
     const contentHeight = options.length * itemHeight + menuPad * 2 - 6;
     const maxMenuHeight = 320;
@@ -1177,6 +1425,7 @@ function makeVariantDropdown(
 
     const drawFns: Array<(focused: boolean) => void> = [];
     const hoverSetters: Array<(t: number) => void> = [];
+    const hoverProgress: number[] = [];
     const truncatedFlags: boolean[] = [];
     const labels: string[] = [];
     let selectedIndex = -1;
@@ -1319,6 +1568,7 @@ function makeVariantDropdown(
       };
       const drawItemBg = () => {
         const t = hoverT;
+        hoverProgress[idx] = t;
         btnBg.clear();
         btnBg.roundRect(0, 0, w - 8 - itemRightPad, itemInnerHeight, 8);
         if (t > 0) {
@@ -1345,6 +1595,9 @@ function makeVariantDropdown(
         hoverT = hoverAnimTo;
         hoverRaf = 0;
         drawItemBg();
+        if (menu.visible && focusedIndex === idx && truncatedFlags[idx] && itemBoundsGetters[idx]) {
+          showDropdownTooltip(labels[idx], itemBoundsGetters[idx]());
+        }
       };
       const setHover = (next: number) => {
         hoverTarget = next;
@@ -1381,6 +1634,7 @@ function makeVariantDropdown(
 
       item.eventMode = 'static';
       item.cursor = 'pointer';
+      itemBoundsGetters[idx] = () => rectFromBounds(item.getBounds());
       item.on('pointerover', () => {
         setFocusIndex(idx);
         menuFocusIndex = idx;
@@ -1395,9 +1649,10 @@ function makeVariantDropdown(
         }
       });
       if (truncated) {
-        item.on('pointerover', (e: any) => {
-          const pos = e.global ?? { x: 0, y: 0 };
-          showTooltip(opt.label, pos.x, pos.y);
+        item.on('pointerover', () => {
+          if (hoverProgress[idx] >= 0.99) {
+            showDropdownTooltip(opt.label, itemBoundsGetters[idx]());
+          }
         });
         item.on('pointerout', hideTooltip);
       }
@@ -1574,9 +1829,12 @@ function makeVariantDropdown(
         setFocusIndex(idx);
         menuFocusIndex = idx;
         app.renderer.events.setCursor('pointer');
-        if (truncatedFlags[idx]) {
-          const pos = toCanvasPoint(e.clientX, e.clientY);
-          showTooltip(labels[idx], pos.x, pos.y);
+        if (truncatedFlags[idx] && itemBoundsGetters[idx]) {
+          if (hoverProgress[idx] >= 0.99) {
+            showDropdownTooltip(labels[idx], itemBoundsGetters[idx]());
+          } else {
+            hideTooltip();
+          }
         } else {
           hideTooltip();
         }
@@ -1627,9 +1885,10 @@ function makeVariantDropdown(
         scrollY = desiredBottom - menuHeight;
       }
       applyScroll();
-      if (truncatedFlags[next]) {
-        const bounds = menu.getBounds();
-        showTooltip(labels[next], bounds.x + w - 12, bounds.y + itemTop - scrollY + itemHeight / 2);
+      if (truncatedFlags[next] && itemBoundsGetters[next]) {
+        if (hoverProgress[next] >= 0.99) {
+          showDropdownTooltip(labels[next], itemBoundsGetters[next]());
+        }
       }
     };
 
@@ -1648,7 +1907,7 @@ function makeVariantDropdown(
         py <= fieldBounds.y + fieldBounds.height;
       if (local.x < 0 || local.x > w || local.y < 0 || local.y > menuHeight) {
         if (overField && labelTruncated) {
-          showTooltip(labelFull, px, py);
+          showDropdownTooltip(labelFull, rectFromBounds(bg.getBounds()));
         } else {
           hideTooltip();
         }
@@ -1658,9 +1917,12 @@ function makeVariantDropdown(
       if (idx >= 0 && idx < options.length) {
         setFocusIndex(idx);
         menuFocusIndex = idx;
-        if (truncatedFlags[idx]) {
-          const pos = toCanvasPoint(e.clientX, e.clientY);
-          showTooltip(labels[idx], pos.x, pos.y);
+        if (truncatedFlags[idx] && itemBoundsGetters[idx]) {
+          if (hoverProgress[idx] >= 0.99) {
+            showDropdownTooltip(labels[idx], itemBoundsGetters[idx]());
+          } else {
+            hideTooltip();
+          }
         } else {
           hideTooltip();
         }
@@ -1866,7 +2128,7 @@ function makeVariantDropdown(
         state.lastPointer.y >= bounds.y &&
         state.lastPointer.y <= bounds.y + bounds.height;
       if (overField) {
-        showTooltip(labelFull, state.lastPointer.x, state.lastPointer.y);
+        showDropdownTooltip(labelFull, rectFromBounds(bg.getBounds()));
       } else {
         hideTooltip();
       }
@@ -1938,8 +2200,7 @@ function makeVariantDropdown(
   bg.eventMode = 'static';
   const showFieldTooltip = (e: any) => {
     if (!labelTruncated) return;
-    const pos = e.global ?? { x: 0, y: 0 };
-    showTooltip(labelFull, pos.x, pos.y);
+    showDropdownTooltip(labelFull, rectFromBounds(bg.getBounds()));
   };
 
   container.openMenu = () => openMenu();
@@ -2124,8 +2385,7 @@ function makeVariantDropdown(
       hideTooltip();
       return;
     }
-    const pos = e.global ?? { x: 0, y: 0 };
-    showTooltip(labelFull, pos.x, pos.y);
+    showDropdownTooltip(labelFull, rectFromBounds(bg.getBounds()));
   };
   label.on('pointerover', follow);
   label.on('pointermove', follow);

@@ -2084,15 +2084,32 @@ function makeVariantDropdown(
       wantsPointerTooltip = overField;
     }
 
-    const afterClose = () => {
-      if (wantsKeyboardTooltip) {
-        updateClosedTooltip();
-      } else if (wantsPointerTooltip) {
-        showDropdownTooltip(labelFull, rectFromBounds(bg.getBounds()));
-      } else {
-        hideTooltip();
+    const runAfterClickAnim = (fn: () => void) => {
+      if (!clickAnim.active) {
+        fn();
+        return;
       }
-      if (onClosed) onClosed();
+      const check = () => {
+        if (!clickAnim.active) {
+          fn();
+          return;
+        }
+        requestAnimationFrame(check);
+      };
+      requestAnimationFrame(check);
+    };
+
+    const afterClose = () => {
+      runAfterClickAnim(() => {
+        if (wantsKeyboardTooltip) {
+          updateClosedTooltip();
+        } else if (wantsPointerTooltip) {
+          showDropdownTooltip(labelFull, rectFromBounds(bg.getBounds()));
+        } else {
+          hideTooltip();
+        }
+        if (onClosed) onClosed();
+      });
     };
 
     runMenuCloseAnimation(snapshot, afterClose);

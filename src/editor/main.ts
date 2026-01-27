@@ -2022,12 +2022,12 @@ function makeVariantDropdown(
         setFieldFocus(false);
       }
     }
-    if (reason === 'keyboard') {
+    const wantsKeyboardTooltip = reason === 'keyboard';
+    if (wantsKeyboardTooltip) {
       state.focusMode = 'keyboard';
       state.showClosedTooltip = true;
       setFieldFocus(true);
       hideTooltip();
-      updateClosedTooltip();
     }
     if (state.focusMode !== 'none') {
       refreshIdleDelay();
@@ -2049,7 +2049,6 @@ function makeVariantDropdown(
       app.renderer.events.setCursor(resolveCursorAtPoint(state.lastPointer.x, state.lastPointer.y));
     }
     menuCloseAnim.active = false;
-    runMenuCloseAnimation(snapshot, onClosed);
     if (outsideHandler) {
       window.removeEventListener('pointerdown', outsideHandler, { capture: true } as AddEventListenerOptions);
       outsideHandler = null;
@@ -2074,23 +2073,29 @@ function makeVariantDropdown(
       window.removeEventListener('pointermove', menuPointerMoveHandler);
       menuPointerMoveHandler = null;
     }
-    if (reason !== 'keyboard' && labelTruncated && state.lastPointer.x >= 0) {
+    let wantsPointerTooltip = false;
+    if (!wantsKeyboardTooltip && labelTruncated && state.lastPointer.x >= 0) {
       const bounds = bg.getBounds();
       const overField =
         state.lastPointer.x >= bounds.x &&
         state.lastPointer.x <= bounds.x + bounds.width &&
         state.lastPointer.y >= bounds.y &&
         state.lastPointer.y <= bounds.y + bounds.height;
-      if (overField) {
+      wantsPointerTooltip = overField;
+    }
+
+    const afterClose = () => {
+      if (wantsKeyboardTooltip) {
+        updateClosedTooltip();
+      } else if (wantsPointerTooltip) {
         showDropdownTooltip(labelFull, rectFromBounds(bg.getBounds()));
       } else {
         hideTooltip();
       }
-    } else {
-      if (reason !== 'keyboard') {
-        hideTooltip();
-      }
-    }
+      if (onClosed) onClosed();
+    };
+
+    runMenuCloseAnimation(snapshot, afterClose);
   };
 
   const handleOutside = (evt: PointerEvent) => {

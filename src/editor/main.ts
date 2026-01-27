@@ -957,6 +957,8 @@ function makeVariantDropdown(
     height: bounds.height
   });
 
+  const rectFromDisplayObject = (obj: Container) => rectFromBounds(obj.getBounds());
+
   const tooltipLayout = {
     padding: 8,
     margin: 10,
@@ -1153,7 +1155,8 @@ function makeVariantDropdown(
       };
       return avoidRects.reduce((sum, avoid) => sum + rectOverlapArea(rect, avoid), 0);
     };
-    const minOverlap = Math.min(...pool.map(overlapFor));
+    const overlaps = pool.map(overlapFor);
+    const minOverlap = Math.min(...overlaps);
     pool = pool.filter((candidate) => Math.abs(overlapFor(candidate) - minOverlap) < 0.01);
 
     const canvasCenter = { x: screen.width / 2, y: screen.height / 2 };
@@ -1187,6 +1190,11 @@ function makeVariantDropdown(
   };
 
   const showDropdownTooltip = (content: string, anchor: { x: number; y: number; width: number; height: number }) => {
+    if (state.menuOpen) {
+      if (menuPhase !== 'open') return;
+    } else if (menuPhase !== 'closed') {
+      return;
+    }
     showTooltip(content, anchor, { avoidRects: getDropdownAvoidRects() });
   };
 
@@ -1220,7 +1228,7 @@ function makeVariantDropdown(
   };
 
   const updateClosedTooltip = () => {
-    if (!state.showClosedTooltip || state.menuOpen) return;
+    if (!state.showClosedTooltip || state.menuOpen || menuPhase !== 'closed') return;
     if (state.focusMode === 'none') {
       hideTooltip();
       return;
@@ -1549,8 +1557,29 @@ function makeVariantDropdown(
         hoverT = hoverAnimTo;
         hoverRaf = 0;
         drawItemBg();
-        if (menu.visible && focusedIndex === idx && truncatedFlags[idx] && itemBoundsGetters[idx]) {
-          showDropdownTooltip(labels[idx], itemBoundsGetters[idx]());
+        if (
+          menu.visible &&
+          item.parent === menuContent &&
+          focusedIndex === idx &&
+          truncatedFlags[idx] &&
+          itemBoundsGetters[idx]
+        ) {
+          if (menuPhase === 'open') {
+            showDropdownTooltip(labels[idx], itemBoundsGetters[idx]());
+          } else if (menuPhase === 'opening') {
+            pendingMenuOpenTooltip = () => {
+              if (
+                menuPhase === 'open' &&
+                menu.visible &&
+                item.parent === menuContent &&
+                focusedIndex === idx &&
+                truncatedFlags[idx] &&
+                itemBoundsGetters[idx]
+              ) {
+                showDropdownTooltip(labels[idx], itemBoundsGetters[idx]());
+              }
+            };
+          }
         }
       };
       const setHover = (next: number) => {
@@ -1588,7 +1617,7 @@ function makeVariantDropdown(
 
       item.eventMode = 'static';
       item.cursor = 'pointer';
-      itemBoundsGetters[idx] = () => rectFromBounds(item.getBounds());
+      itemBoundsGetters[idx] = () => rectFromDisplayObject(item);
       item.on('pointerover', () => {
         setFocusIndex(idx);
         menuFocusIndex = idx;
@@ -1929,8 +1958,11 @@ function makeVariantDropdown(
   };
   let menuCloseSnapshot: Sprite | null = null;
   let menuCloseSnapshotTexture: Texture | null = null;
+  let menuPhase: 'closed' | 'opening' | 'open' | 'closing' = 'closed';
+  let pendingMenuOpenTooltip: (() => void) | null = null;
 
   const runMenuOpenAnimation = () => {
+    menuPhase = 'opening';
     menu.visible = true;
     menu.alpha = 0;
     menu.scale.set(1);
@@ -1948,11 +1980,22 @@ function makeVariantDropdown(
     });
     animateMenuItems(true);
     animateMenu(180, (t) => {
-      const eased = easeOut(t);
-      menu.alpha = eased;
-      menu.scale.set(0.98 + 0.02 * eased);
-      menu.y = startY + (endY - startY) * eased;
-    });
+        const eased = easeOut(t);
+        menu.alpha = eased;
+        menu.scale.set(0.98 + 0.02 * eased);
+        menu.y = startY + (endY - startY) * eased;
+      },
+      () => {
+        if (menuPhase === 'opening') {
+          menuPhase = 'open';
+        }
+        if (pendingMenuOpenTooltip) {
+          const runPending = pendingMenuOpenTooltip;
+          pendingMenuOpenTooltip = null;
+          runPending();
+        }
+      }
+    );
   };
 
   const runMenuCloseAnimation = (snapshot: Sprite, onDone?: () => void) => {
@@ -1976,6 +2019,9 @@ function makeVariantDropdown(
         return;
       }
       menuCloseAnim.active = false;
+      if (menuPhase === 'closing') {
+        menuPhase = 'closed';
+      }
       snapshot.visible = false;
       snapshot.alpha = 1;
       snapshot.scale.set(1);
@@ -1995,6 +2041,8 @@ function makeVariantDropdown(
 
   const closeMenu = (reason: 'pointer' | 'keyboard' | 'program' = 'program', onClosed?: () => void) => {
     state.menuOpen = false;
+    menuPhase = 'closing';
+    pendingMenuOpenTooltip = null;
     if (reason !== 'program') {
       triggerClickAnim();
     }

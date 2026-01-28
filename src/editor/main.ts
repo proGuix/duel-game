@@ -1080,6 +1080,9 @@ function makeVariantDropdown(
     anchor: { x: number; y: number; width: number; height: number },
     opts?: { avoidRects?: Rect[] }
   ) => {
+    if (tooltipDebug) {
+      console.log('[tooltip] place start', { content, anchor });
+    }
     const screen = app.screen;
     const maxWidth = Math.max(tooltipLayout.minWidth, Math.min(tooltipLayout.maxWidth, screen.width));
     tooltipText.text = wrapTooltipText(content, maxWidth - tooltipLayout.padding * 2);
@@ -1185,6 +1188,9 @@ function makeVariantDropdown(
     tooltipState.currentX = chosen.x;
     tooltipState.currentY = chosen.y;
     tooltipState.visible = true;
+    if (tooltipDebug) {
+      console.log('[tooltip] place chosen', { side: chosen.side, x: chosen.x, y: chosen.y, w: chosen.w, h: chosen.h });
+    }
     drawTooltipAt();
   };
 
@@ -1229,8 +1235,13 @@ function makeVariantDropdown(
     | { kind: 'field' }
     | { kind: 'item'; index: number; deferWhileOpening?: boolean };
   let tooltipTarget: TooltipTarget = { kind: 'none' };
+  let tooltipTargetKey = '';
+  const tooltipDebug = true;
 
   const refreshTooltip = () => {
+    if (tooltipDebug) {
+      console.log('[tooltip] redraw', { target: tooltipTarget, key: tooltipTargetKey });
+    }
     if (tooltipTarget.kind === 'field') {
       requestFieldTooltip();
       return;
@@ -1242,19 +1253,29 @@ function makeVariantDropdown(
     hideTooltip();
   };
 
-  const setTooltipTarget = (target: TooltipTarget) => {
+  const sameTooltipTarget = (a: TooltipTarget, b: TooltipTarget, aKey: string, bKey: string) => {
+    if (a.kind !== b.kind) return false;
+    if (aKey !== bKey) return false;
+    if (a.kind === 'item' && b.kind === 'item') {
+      return a.index === b.index && a.deferWhileOpening === b.deferWhileOpening;
+    }
+    return true;
+  };
+  const setTooltipTarget = (target: TooltipTarget, key = '') => {
+    if (sameTooltipTarget(tooltipTarget, target, tooltipTargetKey, key)) return;
     tooltipTarget = target;
+    tooltipTargetKey = key;
     refreshTooltip();
   };
 
   const updateMenuTooltip = (idx: number, overField = false) => {
     if (idx >= 0 && idx < menuOptions.length) {
       applyMenuFocus(idx);
-      setTooltipTarget({ kind: 'item', index: idx });
+      setTooltipTarget({ kind: 'item', index: idx }, menuLabels[idx] ?? '');
       return;
     }
     if (overField) {
-      setTooltipTarget({ kind: 'field' });
+      setTooltipTarget({ kind: 'field' }, labelFull);
     } else {
       setTooltipTarget({ kind: 'none' });
     }
@@ -1295,7 +1316,7 @@ function makeVariantDropdown(
       setTooltipTarget({ kind: 'none' });
       return;
     }
-    setTooltipTarget({ kind: 'field' });
+    setTooltipTarget({ kind: 'field' }, labelFull);
   };
 
   let windowPointerMoveHandler: ((e: PointerEvent) => void) | null = null;
@@ -1629,7 +1650,7 @@ function makeVariantDropdown(
         hoverRaf = 0;
         drawItemBg();
         if (menu.visible && item.parent === menuContent && focusedIndex === idx) {
-          setTooltipTarget({ kind: 'item', index: idx, deferWhileOpening: true });
+          setTooltipTarget({ kind: 'item', index: idx, deferWhileOpening: true }, menuLabels[idx] ?? '');
         }
       };
       const setHover = (next: number) => {
@@ -1682,7 +1703,7 @@ function makeVariantDropdown(
       });
       if (truncated) {
         item.on('pointerover', () => {
-          setTooltipTarget({ kind: 'item', index: idx });
+          setTooltipTarget({ kind: 'item', index: idx }, menuLabels[idx] ?? '');
         });
         item.on('pointerout', () => setTooltipTarget({ kind: 'none' }));
       }
@@ -2163,7 +2184,7 @@ function makeVariantDropdown(
         if (wantsKeyboardTooltip) {
           syncClosedTooltipTarget();
         } else if (wantsPointerTooltip) {
-          setTooltipTarget({ kind: 'field' });
+          setTooltipTarget({ kind: 'field' }, labelFull);
         } else {
           setTooltipTarget({ kind: 'none' });
         }
@@ -2234,7 +2255,7 @@ function makeVariantDropdown(
 
   bg.eventMode = 'static';
   const handleFieldMove = () => {
-    setTooltipTarget({ kind: 'field' });
+    setTooltipTarget({ kind: 'field' }, labelFull);
     if (!state.menuOpen) {
       refreshIdleDelay();
     }
@@ -2343,7 +2364,7 @@ function makeVariantDropdown(
       if (next && next.id !== currentDescriptor.id) {
         state.focusMode = 'keyboard';
         setFieldFocus(true);
-        setTooltipTarget({ kind: 'field' });
+        setTooltipTarget({ kind: 'field' }, labelFull);
         requestVariantSwitch(next.id);
       }
       return;
@@ -2383,7 +2404,7 @@ function makeVariantDropdown(
     dropdownHover = true;
     state.focusMode = 'mouse';
     setFieldFocus(true);
-    setTooltipTarget({ kind: 'field' });
+    setTooltipTarget({ kind: 'field' }, labelFull);
     if (!state.menuOpen) {
       refreshIdleDelay();
     }

@@ -1081,9 +1081,6 @@ function makeVariantDropdown(
     anchor: { x: number; y: number; width: number; height: number },
     opts?: { avoidRects?: Rect[] }
   ) => {
-    if (tooltipDebug) {
-      console.log('[tooltip] place start', { content, anchor });
-    }
     const screen = app.screen;
     const maxWidth = Math.max(tooltipLayout.minWidth, Math.min(tooltipLayout.maxWidth, screen.width));
     tooltipText.text = wrapTooltipText(content, maxWidth - tooltipLayout.padding * 2);
@@ -1189,9 +1186,6 @@ function makeVariantDropdown(
     tooltipState.currentX = chosen.x;
     tooltipState.currentY = chosen.y;
     tooltipState.visible = true;
-    if (tooltipDebug) {
-      console.log('[tooltip] place chosen', { side: chosen.side, x: chosen.x, y: chosen.y, w: chosen.w, h: chosen.h });
-    }
     drawTooltipAt();
   };
 
@@ -1210,12 +1204,7 @@ function makeVariantDropdown(
     | { kind: 'item'; index: number; deferWhileOpening?: boolean };
   let tooltipTarget: TooltipTarget = { kind: 'none' };
   let tooltipTargetKey = '';
-  const tooltipDebug = true;
-
   const refreshTooltip = () => {
-    if (tooltipDebug) {
-      console.log('[tooltip] redraw', { target: tooltipTarget, key: tooltipTargetKey });
-    }
     if (tooltipTarget.kind === 'none') {
       hideTooltip();
       return;

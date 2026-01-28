@@ -957,6 +957,7 @@ function makeVariantDropdown(
   });
 
   const rectFromDisplayObject = (obj: Container) => rectFromBounds(obj.getBounds());
+  const getFieldBoundsRect = () => rectFromBounds(bg.getBounds());
 
   const tooltipLayout = {
     padding: 8,
@@ -1061,7 +1062,7 @@ function makeVariantDropdown(
   };
 
   const getDropdownAvoidRects = (): Rect[] => {
-    const rects: Rect[] = [rectFromBounds(bg.getBounds())];
+    const rects: Rect[] = [getFieldBoundsRect()];
     if (menu.visible) {
       const maskBounds = menuMask ? menuMask.getBounds() : null;
       const hasMaskBounds = maskBounds && maskBounds.width > 0.5 && maskBounds.height > 0.5;
@@ -1203,18 +1204,38 @@ function makeVariantDropdown(
     showTooltip(content, anchor, { avoidRects: getDropdownAvoidRects() });
   };
 
-  const requestFieldTooltip = () => {
-    if (!labelTruncated) {
+  type TooltipTarget =
+    | { kind: 'none' }
+    | { kind: 'field' }
+    | { kind: 'item'; index: number; deferWhileOpening?: boolean };
+  let tooltipTarget: TooltipTarget = { kind: 'none' };
+  let tooltipTargetKey = '';
+  const tooltipDebug = true;
+
+  const refreshTooltip = () => {
+    if (tooltipDebug) {
+      console.log('[tooltip] redraw', { target: tooltipTarget, key: tooltipTargetKey });
+    }
+    if (tooltipTarget.kind === 'none') {
       hideTooltip();
       return;
     }
-    showDropdownTooltip(labelFull, rectFromBounds(bg.getBounds()));
-  };
-
-  const requestItemTooltip = (idx: number, opts?: { deferWhileOpening?: boolean }) => {
+    if (tooltipTarget.kind === 'field') {
+      if (!labelTruncated) {
+        hideTooltip();
+        return;
+      }
+      showDropdownTooltip(labelFull, getFieldBoundsRect());
+      return;
+    }
+    const idx = tooltipTarget.index;
     if (!menu.visible || menuPhase !== 'open') {
-      if (opts?.deferWhileOpening && menuPhase === 'opening') {
-        pendingMenuOpenTooltip = () => requestItemTooltip(idx);
+      if (tooltipTarget.deferWhileOpening && menuPhase === 'opening') {
+        pendingMenuOpenTooltip = () => {
+          if (tooltipTarget.kind === 'item' && tooltipTarget.index === idx) {
+            refreshTooltip();
+          }
+        };
       }
       hideTooltip();
       return;
@@ -1228,29 +1249,6 @@ function makeVariantDropdown(
       return;
     }
     showDropdownTooltip(menuLabels[idx], menuItemBoundsGetters[idx]());
-  };
-
-  type TooltipTarget =
-    | { kind: 'none' }
-    | { kind: 'field' }
-    | { kind: 'item'; index: number; deferWhileOpening?: boolean };
-  let tooltipTarget: TooltipTarget = { kind: 'none' };
-  let tooltipTargetKey = '';
-  const tooltipDebug = true;
-
-  const refreshTooltip = () => {
-    if (tooltipDebug) {
-      console.log('[tooltip] redraw', { target: tooltipTarget, key: tooltipTargetKey });
-    }
-    if (tooltipTarget.kind === 'field') {
-      requestFieldTooltip();
-      return;
-    }
-    if (tooltipTarget.kind === 'item') {
-      requestItemTooltip(tooltipTarget.index, { deferWhileOpening: tooltipTarget.deferWhileOpening });
-      return;
-    }
-    hideTooltip();
   };
 
   const sameTooltipTarget = (a: TooltipTarget, b: TooltipTarget, aKey: string, bKey: string) => {
@@ -1268,17 +1266,16 @@ function makeVariantDropdown(
     refreshTooltip();
   };
 
+  const focusMenuItem = (idx: number) => {
+    if (idx < 0 || idx >= menuOptions.length) return false;
+    applyMenuFocus(idx);
+    setTooltipTarget({ kind: 'item', index: idx }, menuLabels[idx] ?? '');
+    return true;
+  };
+
   const updateMenuTooltip = (idx: number, overField = false) => {
-    if (idx >= 0 && idx < menuOptions.length) {
-      applyMenuFocus(idx);
-      setTooltipTarget({ kind: 'item', index: idx }, menuLabels[idx] ?? '');
-      return;
-    }
-    if (overField) {
-      setTooltipTarget({ kind: 'field' }, labelFull);
-    } else {
-      setTooltipTarget({ kind: 'none' });
-    }
+    if (focusMenuItem(idx)) return;
+    setTooltipTarget(overField ? { kind: 'field' } : { kind: 'none' }, overField ? labelFull : '');
   };
 
   const updateFocusFromPoint = (px: number, py: number) => {
@@ -1391,6 +1388,7 @@ function makeVariantDropdown(
       requestAnimationFrame(() => {
         app.renderer.events.setCursor(cursor);
       });
+      focusMenuItem(idx);
     });
 
     const menuRadius = 12;
@@ -1923,7 +1921,7 @@ function makeVariantDropdown(
         scrollY = desiredBottom - menuHeight;
       }
       applyScroll();
-      requestItemTooltip(next);
+      focusMenuItem(next);
     };
 
     if (menuPointerMoveHandler) {

@@ -2099,11 +2099,11 @@ function makeVariantDropdown(
         setFieldFocus(false);
       }
     }
-    const wantsKeyboardTooltip = reason === 'keyboard';
-    if (wantsKeyboardTooltip) {
+    const restoreFieldTooltipAfterClose = reason === 'keyboard';
+    clearTooltipTarget();
+    if (restoreFieldTooltipAfterClose) {
       state.focusMode = 'keyboard';
       setFieldFocus(true);
-      clearTooltipTarget();
     }
     if (state.focusMode !== 'none') {
       refreshIdleDelay();
@@ -2150,7 +2150,7 @@ function makeVariantDropdown(
       menuPointerMoveHandler = null;
     }
     let wantsPointerTooltip = false;
-    if (!wantsKeyboardTooltip && labelTruncated && state.lastPointer.x >= 0) {
+    if (!restoreFieldTooltipAfterClose && labelTruncated && state.lastPointer.x >= 0) {
       const bounds = bg.getBounds();
       const overField =
         state.lastPointer.x >= bounds.x &&
@@ -2177,7 +2177,7 @@ function makeVariantDropdown(
 
     const afterClose = () => {
       runAfterClickAnim(() => {
-        if (wantsKeyboardTooltip) {
+        if (restoreFieldTooltipAfterClose) {
           syncClosedTooltipTarget();
         } else if (wantsPointerTooltip) {
           setFieldTooltipTarget();

@@ -1198,6 +1198,33 @@ function makeVariantDropdown(
     showTooltip(content, anchor, { avoidRects: getDropdownAvoidRects() });
   };
 
+  const requestFieldTooltip = () => {
+    if (!labelTruncated) {
+      hideTooltip();
+      return;
+    }
+    showDropdownTooltip(labelFull, rectFromBounds(bg.getBounds()));
+  };
+
+  const requestItemTooltip = (idx: number, opts?: { deferWhileOpening?: boolean }) => {
+    if (!menu.visible || menuPhase !== 'open') {
+      if (opts?.deferWhileOpening && menuPhase === 'opening') {
+        pendingMenuOpenTooltip = () => requestItemTooltip(idx);
+      }
+      hideTooltip();
+      return;
+    }
+    if (idx < 0 || idx >= menuOptions.length) {
+      hideTooltip();
+      return;
+    }
+    if (!menuTruncatedFlags[idx] || !menuItemBoundsGetters[idx] || menuHoverProgress[idx] < 0.99) {
+      hideTooltip();
+      return;
+    }
+    showDropdownTooltip(menuLabels[idx], menuItemBoundsGetters[idx]());
+  };
+
   const updateFocusFromPoint = (px: number, py: number) => {
     const bounds = bg.getBounds();
     const inside =
@@ -1233,11 +1260,7 @@ function makeVariantDropdown(
       hideTooltip();
       return;
     }
-    if (labelTruncated) {
-      showDropdownTooltip(labelFull, rectFromBounds(bg.getBounds()));
-    } else {
-      hideTooltip();
-    }
+    requestFieldTooltip();
   };
 
   let windowPointerMoveHandler: ((e: PointerEvent) => void) | null = null;
@@ -1276,10 +1299,19 @@ function makeVariantDropdown(
   let menuKeyHandler: ((e: KeyboardEvent) => void) | null = null;
   let menuPointerMoveHandler: ((e: PointerEvent) => void) | null = null;
   let menuFocusIndex = -1;
+  let menuOptions: ReturnType<typeof listBehaviorOptions> = [];
+  let menuItemBoundsGetters: Array<() => { x: number; y: number; width: number; height: number }> = [];
+  let menuTruncatedFlags: boolean[] = [];
+  let menuLabels: string[] = [];
+  let menuHoverProgress: number[] = [];
   const rebuildMenu = () => {
     menu.removeChildren();
     const options = listBehaviorOptions();
-    const itemBoundsGetters: Array<() => { x: number; y: number; width: number; height: number }> = [];
+    menuOptions = options;
+    menuItemBoundsGetters = [];
+    menuTruncatedFlags = [];
+    menuLabels = [];
+    menuHoverProgress = [];
     const menuPad = 6;
     const contentHeight = options.length * itemHeight + menuPad * 2 - 6;
     const maxMenuHeight = 320;
@@ -1387,9 +1419,6 @@ function makeVariantDropdown(
 
     const drawFns: Array<(focused: boolean) => void> = [];
     const hoverSetters: Array<(t: number) => void> = [];
-    const hoverProgress: number[] = [];
-    const truncatedFlags: boolean[] = [];
-    const labels: string[] = [];
     let selectedIndex = -1;
     let focusedIndex = -1;
     const itemInset = 4;
@@ -1530,7 +1559,7 @@ function makeVariantDropdown(
       };
       const drawItemBg = () => {
         const t = hoverT;
-        hoverProgress[idx] = t;
+        menuHoverProgress[idx] = t;
         btnBg.clear();
         btnBg.roundRect(0, 0, w - 8 - itemRightPad, itemInnerHeight, 8);
         if (t > 0) {
@@ -1557,29 +1586,8 @@ function makeVariantDropdown(
         hoverT = hoverAnimTo;
         hoverRaf = 0;
         drawItemBg();
-        if (
-          menu.visible &&
-          item.parent === menuContent &&
-          focusedIndex === idx &&
-          truncatedFlags[idx] &&
-          itemBoundsGetters[idx]
-        ) {
-          if (menuPhase === 'open') {
-            showDropdownTooltip(labels[idx], itemBoundsGetters[idx]());
-          } else if (menuPhase === 'opening') {
-            pendingMenuOpenTooltip = () => {
-              if (
-                menuPhase === 'open' &&
-                menu.visible &&
-                item.parent === menuContent &&
-                focusedIndex === idx &&
-                truncatedFlags[idx] &&
-                itemBoundsGetters[idx]
-              ) {
-                showDropdownTooltip(labels[idx], itemBoundsGetters[idx]());
-              }
-            };
-          }
+        if (menu.visible && item.parent === menuContent && focusedIndex === idx) {
+          requestItemTooltip(idx, { deferWhileOpening: true });
         }
       };
       const setHover = (next: number) => {
@@ -1600,8 +1608,8 @@ function makeVariantDropdown(
       const textX = 10;
       txt.position.set(textX, (itemInnerHeight - txt.height) / 2);
       const truncated = applyEllipsis(txt, opt.label, w - 40 - itemRightPad);
-      truncatedFlags[idx] = truncated;
-      labels[idx] = opt.label;
+      menuTruncatedFlags[idx] = truncated;
+      menuLabels[idx] = opt.label;
       item.addChild(txt);
 
       if (isCurrent) selectedIndex = idx;
@@ -1617,7 +1625,7 @@ function makeVariantDropdown(
 
       item.eventMode = 'static';
       item.cursor = 'pointer';
-      itemBoundsGetters[idx] = () => rectFromDisplayObject(item);
+      menuItemBoundsGetters[idx] = () => rectFromDisplayObject(item);
       item.on('pointerover', () => {
         setFocusIndex(idx);
         menuFocusIndex = idx;
@@ -1633,9 +1641,7 @@ function makeVariantDropdown(
       });
       if (truncated) {
         item.on('pointerover', () => {
-          if (hoverProgress[idx] >= 0.99) {
-            showDropdownTooltip(opt.label, itemBoundsGetters[idx]());
-          }
+          requestItemTooltip(idx);
         });
         item.on('pointerout', hideTooltip);
       }
@@ -1812,15 +1818,7 @@ function makeVariantDropdown(
         setFocusIndex(idx);
         menuFocusIndex = idx;
         app.renderer.events.setCursor('pointer');
-        if (truncatedFlags[idx] && itemBoundsGetters[idx]) {
-          if (hoverProgress[idx] >= 0.99) {
-            showDropdownTooltip(labels[idx], itemBoundsGetters[idx]());
-          } else {
-            hideTooltip();
-          }
-        } else {
-          hideTooltip();
-        }
+        requestItemTooltip(idx);
       } else {
         app.renderer.events.setCursor(isPointerOnScrollbar(px, py) ? 'pointer' : 'default');
         hideTooltip();
@@ -1857,7 +1855,6 @@ function makeVariantDropdown(
       const next = Math.max(0, Math.min(options.length - 1, menuFocusIndex + dir));
       menuFocusIndex = next;
       setFocusIndex(next);
-      hideTooltip();
       const itemTop = menuPad + next * itemHeight;
       const itemBottom = itemTop + (itemHeight - 6);
       const desiredTop = itemTop - menuPad;
@@ -1868,11 +1865,7 @@ function makeVariantDropdown(
         scrollY = desiredBottom - menuHeight;
       }
       applyScroll();
-      if (truncatedFlags[next] && itemBoundsGetters[next]) {
-        if (hoverProgress[next] >= 0.99) {
-          showDropdownTooltip(labels[next], itemBoundsGetters[next]());
-        }
-      }
+      requestItemTooltip(next);
     };
 
     if (menuPointerMoveHandler) {
@@ -1889,8 +1882,8 @@ function makeVariantDropdown(
         py >= fieldBounds.y &&
         py <= fieldBounds.y + fieldBounds.height;
       if (local.x < 0 || local.x > w || local.y < 0 || local.y > menuHeight) {
-        if (overField && labelTruncated) {
-          showDropdownTooltip(labelFull, rectFromBounds(bg.getBounds()));
+        if (overField) {
+          requestFieldTooltip();
         } else {
           hideTooltip();
         }
@@ -1900,15 +1893,7 @@ function makeVariantDropdown(
       if (idx >= 0 && idx < options.length) {
         setFocusIndex(idx);
         menuFocusIndex = idx;
-        if (truncatedFlags[idx] && itemBoundsGetters[idx]) {
-          if (hoverProgress[idx] >= 0.99) {
-            showDropdownTooltip(labels[idx], itemBoundsGetters[idx]());
-          } else {
-            hideTooltip();
-          }
-        } else {
-          hideTooltip();
-        }
+        requestItemTooltip(idx);
       } else {
         hideTooltip();
       }
@@ -2152,7 +2137,7 @@ function makeVariantDropdown(
         if (wantsKeyboardTooltip) {
           updateClosedTooltip();
         } else if (wantsPointerTooltip) {
-          showDropdownTooltip(labelFull, rectFromBounds(bg.getBounds()));
+          requestFieldTooltip();
         } else {
           hideTooltip();
         }
@@ -2223,8 +2208,7 @@ function makeVariantDropdown(
 
   bg.eventMode = 'static';
   const showFieldTooltip = (e: any) => {
-    if (!labelTruncated) return;
-    showDropdownTooltip(labelFull, rectFromBounds(bg.getBounds()));
+    requestFieldTooltip();
   };
 
   container.openMenu = () => openMenu();
@@ -2405,11 +2389,7 @@ function makeVariantDropdown(
     if (!state.menuOpen) {
       refreshIdleDelay();
     }
-    if (!labelTruncated) {
-      hideTooltip();
-      return;
-    }
-    showDropdownTooltip(labelFull, rectFromBounds(bg.getBounds()));
+    requestFieldTooltip();
   };
   label.on('pointerover', follow);
   label.on('pointermove', follow);

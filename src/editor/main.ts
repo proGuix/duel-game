@@ -1310,6 +1310,7 @@ function makeVariantDropdown(
       clearTooltipTarget();
       return;
     }
+    clearTooltipTarget();
     setFieldTooltipTarget();
   };
 
@@ -2148,17 +2149,6 @@ function makeVariantDropdown(
       window.removeEventListener('pointermove', menuPointerMoveHandler);
       menuPointerMoveHandler = null;
     }
-    let wantsPointerTooltip = false;
-    if (!restoreFieldTooltipAfterClose && labelTruncated && state.lastPointer.x >= 0) {
-      const bounds = bg.getBounds();
-      const overField =
-        state.lastPointer.x >= bounds.x &&
-        state.lastPointer.x <= bounds.x + bounds.width &&
-        state.lastPointer.y >= bounds.y &&
-        state.lastPointer.y <= bounds.y + bounds.height;
-      wantsPointerTooltip = overField;
-    }
-
     const runAfterClickAnim = (fn: () => void) => {
       if (!clickAnim.active) {
         fn();
@@ -2178,10 +2168,22 @@ function makeVariantDropdown(
       runAfterClickAnim(() => {
         if (restoreFieldTooltipAfterClose) {
           syncClosedTooltipTarget();
-        } else if (wantsPointerTooltip) {
-          setFieldTooltipTarget();
         } else {
-          clearTooltipTarget();
+          let overField = false;
+          if (labelTruncated && state.lastPointer.x >= 0) {
+            const bounds = bg.getBounds();
+            overField =
+              state.lastPointer.x >= bounds.x &&
+              state.lastPointer.x <= bounds.x + bounds.width &&
+              state.lastPointer.y >= bounds.y &&
+              state.lastPointer.y <= bounds.y + bounds.height;
+          }
+          if (overField) {
+            clearTooltipTarget();
+            setFieldTooltipTarget();
+          } else {
+            clearTooltipTarget();
+          }
         }
         if (onClosed) onClosed();
       });
@@ -2214,6 +2216,7 @@ function makeVariantDropdown(
     if (e?.global) {
       setFieldFocus(true);
     }
+    clearTooltipTarget();
     menu.visible = true;
     state.menuOpen = true;
     setCaretTarget(true);

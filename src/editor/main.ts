@@ -904,6 +904,7 @@ function makeVariantDropdown(
   container.addChild(menu);
   let menuMask!: Graphics;
   let menuContent!: Container;
+  let menuBg!: Graphics;
 
   const tooltip = new Container();
   tooltip.visible = false;
@@ -962,7 +963,7 @@ function makeVariantDropdown(
   const tooltipLayout = {
     padding: 8,
     margin: 10,
-    gap: 30,
+    gap: 10,
     radius: 8,
     arrowSize: 6,
     arrowWidth: 12,
@@ -1004,15 +1005,6 @@ function makeVariantDropdown(
     const localAy = ay - currentY;
     if (side === 'top') {
       const arrowX = clampX(localAx);
-      const y = rectY;
-      tooltipBg.moveTo(arrowX - arrowWidth / 2, y);
-      tooltipBg.lineTo(arrowX + arrowWidth / 2, y);
-      tooltipBg.lineTo(arrowX, y - arrowSize);
-      tooltipBg.closePath();
-      tooltipBg.fill({ color: 0x101521, alpha: 0.95 });
-      tooltipBg.stroke({ width: 1, color: 0x4da3ff, alpha: 0.6 });
-    } else if (side === 'bottom') {
-      const arrowX = clampX(localAx);
       const y = rectY + baseH;
       tooltipBg.moveTo(arrowX - arrowWidth / 2, y);
       tooltipBg.lineTo(arrowX + arrowWidth / 2, y);
@@ -1020,21 +1012,30 @@ function makeVariantDropdown(
       tooltipBg.closePath();
       tooltipBg.fill({ color: 0x101521, alpha: 0.95 });
       tooltipBg.stroke({ width: 1, color: 0x4da3ff, alpha: 0.6 });
-    } else if (side === 'left') {
-      const arrowY = clampY(localAy);
-      const x = rectX;
-      tooltipBg.moveTo(x, arrowY - arrowWidth / 2);
-      tooltipBg.lineTo(x, arrowY + arrowWidth / 2);
-      tooltipBg.lineTo(x - arrowSize, arrowY);
+    } else if (side === 'bottom') {
+      const arrowX = clampX(localAx);
+      const y = rectY;
+      tooltipBg.moveTo(arrowX - arrowWidth / 2, y);
+      tooltipBg.lineTo(arrowX + arrowWidth / 2, y);
+      tooltipBg.lineTo(arrowX, y - arrowSize);
       tooltipBg.closePath();
       tooltipBg.fill({ color: 0x101521, alpha: 0.95 });
       tooltipBg.stroke({ width: 1, color: 0x4da3ff, alpha: 0.6 });
-    } else {
+    } else if (side === 'left') {
       const arrowY = clampY(localAy);
       const x = rectX + baseW;
       tooltipBg.moveTo(x, arrowY - arrowWidth / 2);
       tooltipBg.lineTo(x, arrowY + arrowWidth / 2);
       tooltipBg.lineTo(x + arrowSize, arrowY);
+      tooltipBg.closePath();
+      tooltipBg.fill({ color: 0x101521, alpha: 0.95 });
+      tooltipBg.stroke({ width: 1, color: 0x4da3ff, alpha: 0.6 });
+    } else {
+      const arrowY = clampY(localAy);
+      const x = rectX;
+      tooltipBg.moveTo(x, arrowY - arrowWidth / 2);
+      tooltipBg.lineTo(x, arrowY + arrowWidth / 2);
+      tooltipBg.lineTo(x - arrowSize, arrowY);
       tooltipBg.closePath();
       tooltipBg.fill({ color: 0x101521, alpha: 0.95 });
       tooltipBg.stroke({ width: 1, color: 0x4da3ff, alpha: 0.6 });
@@ -1064,9 +1065,7 @@ function makeVariantDropdown(
   const getDropdownAvoidRects = (): Rect[] => {
     const rects: Rect[] = [getFieldBoundsRect()];
     if (menu.visible) {
-      const maskBounds = menuMask ? menuMask.getBounds() : null;
-      const hasMaskBounds = maskBounds && maskBounds.width > 0.5 && maskBounds.height > 0.5;
-      rects.push(rectFromBounds(hasMaskBounds ? maskBounds : menu.getBounds()));
+      rects.push(rectFromBounds(menuBg.getBounds()));
     }
     return rects;
   };
@@ -1095,7 +1094,7 @@ function makeVariantDropdown(
     const ay = anchor.y + anchor.height / 2;
     const candidates: TooltipCandidate[] = [
       {
-        side: 'bottom',
+        side: 'top',
         x: ax - baseW / 2,
         y: anchor.y - gap - (baseH + arrowSize),
         w: baseW,
@@ -1104,7 +1103,7 @@ function makeVariantDropdown(
         rectY: 0
       },
       {
-        side: 'top',
+        side: 'bottom',
         x: ax - baseW / 2,
         y: anchor.y + anchor.height + gap,
         w: baseW,
@@ -1113,7 +1112,7 @@ function makeVariantDropdown(
         rectY: arrowSize
       },
       {
-        side: 'left',
+        side: 'right',
         x: anchor.x + anchor.width + gap,
         y: ay - baseH / 2,
         w: baseW + arrowSize,
@@ -1122,7 +1121,7 @@ function makeVariantDropdown(
         rectY: 0
       },
       {
-        side: 'right',
+        side: 'left',
         x: anchor.x - gap - (baseW + arrowSize),
         y: ay - baseH / 2,
         w: baseW + arrowSize,
@@ -1399,7 +1398,7 @@ function makeVariantDropdown(
     menuShadow.zIndex = 0;
     menu.addChild(menuShadow);
 
-    const menuBg = new Graphics();
+    menuBg = new Graphics();
     menuBg.eventMode = 'none';
     menuBg.zIndex = 1;
     menu.addChild(menuBg);

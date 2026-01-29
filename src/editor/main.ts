@@ -1197,19 +1197,25 @@ function makeVariantDropdown(
     showTooltip(content, anchor, { avoidRects: getDropdownAvoidRects() });
   };
 
-  type TooltipTarget =
-    | { kind: 'none' }
-    | { kind: 'field' }
-    | { kind: 'item'; index: number; deferWhileOpening?: boolean };
+  type TooltipTarget = { kind: 'none' } | { kind: 'field' } | { kind: 'item'; index: number };
+
   let tooltipTarget: TooltipTarget = { kind: 'none' };
   let tooltipTargetKey = '';
+
+  const sameTooltipTarget = (a: TooltipTarget, b: TooltipTarget, aKey: string, bKey: string) => {
+    if (a.kind !== b.kind) return false;
+    if (aKey !== bKey) return false;
+    if (a.kind === 'item' && b.kind === 'item') return a.index === b.index;
+    return true;
+  };
+
   const refreshTooltip = () => {
     if (tooltipTarget.kind === 'none') {
       hideTooltip();
       return;
     }
     if (tooltipTarget.kind === 'field') {
-      if (!labelTruncated) {
+      if ((menuPhase === 'opening' || menuPhase === 'closing') || clickAnim.active || !labelTruncated) {
         hideTooltip();
         return;
       }
@@ -1217,14 +1223,7 @@ function makeVariantDropdown(
       return;
     }
     const idx = tooltipTarget.index;
-    if (!menu.visible || menuPhase !== 'open') {
-      if (tooltipTarget.deferWhileOpening && menuPhase === 'opening') {
-        pendingMenuOpenTooltip = () => {
-          if (tooltipTarget.kind === 'item' && tooltipTarget.index === idx) {
-            refreshTooltip();
-          }
-        };
-      }
+    if (menuPhase !== 'open' || !menu.visible) {
       hideTooltip();
       return;
     }
@@ -1239,20 +1238,13 @@ function makeVariantDropdown(
     showDropdownTooltip(menuLabels[idx], menuItemBoundsGetters[idx]());
   };
 
-  const sameTooltipTarget = (a: TooltipTarget, b: TooltipTarget, aKey: string, bKey: string) => {
-    if (a.kind !== b.kind) return false;
-    if (aKey !== bKey) return false;
-    if (a.kind === 'item' && b.kind === 'item') {
-      return a.index === b.index && a.deferWhileOpening === b.deferWhileOpening;
-    }
-    return true;
-  };
   const setTooltipTarget = (target: TooltipTarget, key = '') => {
     if (sameTooltipTarget(tooltipTarget, target, tooltipTargetKey, key)) return;
     tooltipTarget = target;
     tooltipTargetKey = key;
     refreshTooltip();
   };
+
   const clearTooltipTarget = () => setTooltipTarget({ kind: 'none' });
   const setFieldTooltipTarget = () => setTooltipTarget({ kind: 'field' }, labelFull);
   const setTooltipTargetForOverField = (overField: boolean) => {
@@ -1355,7 +1347,9 @@ function makeVariantDropdown(
   let menuTruncatedFlags: boolean[] = [];
   let menuLabels: string[] = [];
   let menuHoverProgress: number[] = [];
-  let applyMenuFocus: (idx: number) => void = (idx) => {
+  let menuItemNodes: Container[] = [];
+  let menuLayout = { menuHeight: 0, menuPad: 0, scrollY: 0 };
+  let applyMenuFocus: (idx: number, animate?: boolean) => void = (idx) => {
     menuFocusIndex = idx;
   };
   const rebuildMenu = () => {
@@ -1366,6 +1360,7 @@ function makeVariantDropdown(
     menuTruncatedFlags = [];
     menuLabels = [];
     menuHoverProgress = [];
+    menuItemNodes = [];
     const menuPad = 6;
     const contentHeight = options.length * itemHeight + menuPad * 2 - 6;
     const maxMenuHeight = 320;
@@ -1386,7 +1381,9 @@ function makeVariantDropdown(
       requestAnimationFrame(() => {
         app.renderer.events.setCursor(cursor);
       });
-      focusMenuItem(idx);
+      if (idx >= 0) {
+        applyMenuFocus(idx, false);
+      }
     });
 
     const menuRadius = 12;
@@ -1471,6 +1468,12 @@ function makeVariantDropdown(
       updateThumb();
     };
     applyScroll();
+    const updateMenuLayout = () => {
+      menuLayout.menuHeight = menuHeight;
+      menuLayout.menuPad = menuPad;
+      menuLayout.scrollY = scrollY;
+    };
+    updateMenuLayout();
 
     const drawFns: Array<(focused: boolean) => void> = [];
     const hoverSetters: Array<(t: number) => void> = [];
@@ -1568,10 +1571,12 @@ function makeVariantDropdown(
       return false;
     };
 
-    const setFocusIndex = (nextIndex: number) => {
+    const setFocusIndex = (nextIndex: number, animate = true) => {
       if (focusedIndex === nextIndex) return;
       const prevIndex = focusedIndex;
-      startGhostSlide(prevIndex, nextIndex);
+      if (animate) {
+        startGhostSlide(prevIndex, nextIndex);
+      }
       if (focusedIndex >= 0 && drawFns[focusedIndex]) {
         drawFns[focusedIndex](false);
       }
@@ -1586,8 +1591,8 @@ function makeVariantDropdown(
         hoverSetters[focusedIndex](1);
       }
     };
-    applyMenuFocus = (idx: number) => {
-      setFocusIndex(idx);
+    applyMenuFocus = (idx: number, animate = true) => {
+      setFocusIndex(idx, animate);
       menuFocusIndex = idx;
     };
 
@@ -1646,7 +1651,9 @@ function makeVariantDropdown(
         hoverRaf = 0;
         drawItemBg();
         if (menu.visible && item.parent === menuContent && focusedIndex === idx) {
-          setTooltipTarget({ kind: 'item', index: idx, deferWhileOpening: true }, menuLabels[idx] ?? '');
+          if (menuTruncatedFlags[idx]) {
+            refreshTooltip();
+          }
         }
       };
       const setHover = (next: number) => {
@@ -1705,6 +1712,7 @@ function makeVariantDropdown(
       }
 
       menuContent.addChild(item);
+      menuItemNodes.push(item);
     });
 
     if (selectedIndex >= 0) {
@@ -1712,6 +1720,7 @@ function makeVariantDropdown(
       const itemCenter = itemTop + (itemHeight - 6) / 2;
       scrollY = itemCenter - menuHeight / 2;
       applyScroll();
+      updateMenuLayout();
       setFocusIndex(selectedIndex);
       menuFocusIndex = selectedIndex;
     }
@@ -1964,11 +1973,24 @@ function makeVariantDropdown(
     requestAnimationFrame(step);
   };
 
+  const menuItemStaggerMs = 10;
+  const menuItemAnimMs = 200;
+  let menuItemsFinishAt = 0;
   const animateMenuItems = (opening: boolean) => {
-    menuContent.children.forEach((child, index) => {
-      const delay = index * 10;
+    const count = menuItemNodes.length;
+    if (!count) return;
+    const startIndex = Math.max(0, Math.floor(menuLayout.scrollY / itemHeight));
+    const endIndex = Math.min(count - 1, Math.ceil((menuLayout.scrollY + menuLayout.menuHeight) / itemHeight));
+    menuItemNodes.forEach((child, index) => {
+      if (!opening) return;
+      if (index < startIndex || index > endIndex) {
+        child.alpha = 1;
+        return;
+      }
+      child.alpha = 0;
+      const delay = (index - startIndex) * menuItemStaggerMs;
       const start = performance.now() + delay;
-      const duration = 200;
+      const duration = menuItemAnimMs;
       const from = opening ? 0 : 1;
       const to = opening ? 1 : 0;
       const step = (now: number) => {
@@ -1978,6 +2000,9 @@ function makeVariantDropdown(
       };
       requestAnimationFrame(step);
     });
+    const visibleCount = Math.max(1, endIndex - startIndex + 1);
+    const totalDelay = Math.max(0, visibleCount - 1) * menuItemStaggerMs;
+    menuItemsFinishAt = performance.now() + totalDelay + menuItemAnimMs;
   };
 
   const menuCloseAnim = {
@@ -1988,7 +2013,6 @@ function makeVariantDropdown(
   let menuCloseSnapshot: Sprite | null = null;
   let menuCloseSnapshotTexture: Texture | null = null;
   let menuPhase: 'closed' | 'opening' | 'open' | 'closing' = 'closed';
-  let pendingMenuOpenTooltip: (() => void) | null = null;
 
   const runMenuOpenAnimation = () => {
     menuPhase = 'opening';
@@ -2004,7 +2028,7 @@ function makeVariantDropdown(
     const startY = h + 2;
     const endY = h + 6;
     menu.y = startY;
-    menuContent.children.forEach((child) => {
+    menuItemNodes.forEach((child) => {
       child.alpha = 0;
     });
     animateMenuItems(true);
@@ -2015,14 +2039,24 @@ function makeVariantDropdown(
         menu.y = startY + (endY - startY) * eased;
       },
       () => {
-        if (menuPhase === 'opening') {
-          menuPhase = 'open';
-        }
-        if (pendingMenuOpenTooltip) {
-          const runPending = pendingMenuOpenTooltip;
-          pendingMenuOpenTooltip = null;
-          runPending();
-        }
+        const finishOpen = () => {
+          if (menuPhase === 'opening') {
+            menuPhase = 'open';
+            if (menuFocusIndex >= 0) {
+              setTooltipTarget({ kind: 'item', index: menuFocusIndex }, menuLabels[menuFocusIndex] ?? '');
+            }
+            refreshTooltip();
+          }
+        };
+        const waitItems = () => {
+          if (menuPhase !== 'opening') return;
+          if (performance.now() >= menuItemsFinishAt) {
+            finishOpen();
+            return;
+          }
+          requestAnimationFrame(waitItems);
+        };
+        waitItems();
       }
     );
   };
@@ -2051,6 +2085,7 @@ function makeVariantDropdown(
       if (menuPhase === 'closing') {
         menuPhase = 'closed';
       }
+      refreshTooltip();
       snapshot.visible = false;
       snapshot.alpha = 1;
       snapshot.scale.set(1);
@@ -2071,7 +2106,6 @@ function makeVariantDropdown(
   const closeMenu = (reason: 'pointer' | 'keyboard' | 'program' = 'program', onClosed?: () => void) => {
     state.menuOpen = false;
     menuPhase = 'closing';
-    pendingMenuOpenTooltip = null;
     if (reason !== 'program') {
       triggerClickAnim();
     }

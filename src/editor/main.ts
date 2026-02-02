@@ -637,6 +637,7 @@ function makeVariantDropdown(
   type FocusMode = 'none' | 'mouse' | 'keyboard';
   const state = {
     menuOpen: false,
+    menuPhase: 'closed' as 'closed' | 'opening' | 'open' | 'closing',
     focusMode: 'none' as FocusMode,
     focusedIndex: -1,
     hoveredIndex: -1,
@@ -883,6 +884,7 @@ function makeVariantDropdown(
     fieldGroup.scale.set(1);
     fieldGroup.position.set(w / 2, h / 2);
     clickRaf = 0;
+    applyIntentIfReady();
   };
   const triggerClickAnim = () => {
     clickAnim.active = true;
@@ -1190,81 +1192,108 @@ function makeVariantDropdown(
 
   const showDropdownTooltip = (content: string, anchor: { x: number; y: number; width: number; height: number }) => {
     if (state.menuOpen) {
-      if (menuPhase !== 'open') return;
-    } else if (menuPhase !== 'closed') {
+      if (state.menuPhase !== 'open') return;
+    } else if (state.menuPhase !== 'closed') {
       return;
     }
     showTooltip(content, anchor, { avoidRects: getDropdownAvoidRects() });
   };
 
   type TooltipTarget = { kind: 'none' } | { kind: 'field' } | { kind: 'item'; index: number };
+  type TooltipIntent =
+    | { type: 'show'; target: TooltipTarget; ready: () => boolean }
+    | { type: 'hide' };
 
-  let tooltipTarget: TooltipTarget = { kind: 'none' };
-  let tooltipTargetKey = '';
+  let tooltipIntent: TooltipIntent = { type: 'hide' };
 
-  const sameTooltipTarget = (a: TooltipTarget, b: TooltipTarget, aKey: string, bKey: string) => {
-    if (a.kind !== b.kind) return false;
-    if (aKey !== bKey) return false;
-    if (a.kind === 'item' && b.kind === 'item') return a.index === b.index;
-    return true;
+  const isPointerOverField = () => {
+    if (state.lastPointer.x < 0) return false;
+    const bounds = bg.getBounds();
+    return (
+      state.lastPointer.x >= bounds.x &&
+      state.lastPointer.x <= bounds.x + bounds.width &&
+      state.lastPointer.y >= bounds.y &&
+      state.lastPointer.y <= bounds.y + bounds.height
+    );
   };
 
-  const refreshTooltip = () => {
-    if (tooltipTarget.kind === 'none') {
+  const requestTooltipIntent = (intent: TooltipIntent) => {
+    tooltipIntent = intent;
+    applyIntentIfReady();
+  };
+
+  const requestHideIntent = () => {
+    requestTooltipIntent({ type: 'hide' });
+  };
+
+  const requestFieldIntent = () => {
+    requestTooltipIntent({
+      type: 'show',
+      target: { kind: 'field' },
+      ready: () => {
+        if (!labelTruncated) return false;
+        if (state.menuPhase === 'opening' || state.menuPhase === 'closing') return false;
+        if (state.menuPhase === 'closed' && state.focusMode === 'none') return false;
+        if (state.menuPhase === 'open') return isPointerOverField();
+        if (state.menuPhase === 'closed') return !clickAnim.active;
+        return true;
+      }
+    });
+  };
+
+  const requestItemIntent = (idx: number) => {
+    requestTooltipIntent({
+      type: 'show',
+      target: { kind: 'item', index: idx },
+      ready: () =>
+        state.menuPhase === 'open' &&
+        menu.visible &&
+        idx >= 0 &&
+        idx < menuOptions.length &&
+        menuTruncatedFlags[idx] &&
+        !!menuItemBoundsGetters[idx] &&
+        menuHoverProgress[idx] >= 0.99
+    });
+  };
+
+  const applyIntentIfReady = () => {
+    if (tooltipIntent.type === 'hide') {
       hideTooltip();
       return;
     }
-    if (tooltipTarget.kind === 'field') {
-      if ((menuPhase === 'opening' || menuPhase === 'closing') || clickAnim.active || !labelTruncated) {
-        hideTooltip();
-        return;
-      }
+    if (!tooltipIntent.ready()) {
+      hideTooltip();
+      return;
+    }
+    const { target } = tooltipIntent;
+    if (target.kind === 'field') {
       showDropdownTooltip(labelFull, getFieldBoundsRect());
       return;
     }
-    const idx = tooltipTarget.index;
-    if (menuPhase !== 'open' || !menu.visible) {
-      hideTooltip();
-      return;
-    }
-    if (idx < 0 || idx >= menuOptions.length) {
-      hideTooltip();
-      return;
-    }
-    if (!menuTruncatedFlags[idx] || !menuItemBoundsGetters[idx] || menuHoverProgress[idx] < 0.99) {
-      hideTooltip();
-      return;
-    }
-    showDropdownTooltip(menuLabels[idx], menuItemBoundsGetters[idx]());
-  };
-
-  const setTooltipTarget = (target: TooltipTarget, key = '') => {
-    if (sameTooltipTarget(tooltipTarget, target, tooltipTargetKey, key)) return;
-    tooltipTarget = target;
-    tooltipTargetKey = key;
-    refreshTooltip();
-  };
-
-  const clearTooltipTarget = () => setTooltipTarget({ kind: 'none' });
-  const setFieldTooltipTarget = () => setTooltipTarget({ kind: 'field' }, labelFull);
-  const setTooltipTargetForOverField = (overField: boolean) => {
-    if (overField) {
-      setFieldTooltipTarget();
-    } else {
-      clearTooltipTarget();
+    if (target.kind === 'item') {
+      const idx = target.index;
+      showDropdownTooltip(menuLabels[idx], menuItemBoundsGetters[idx]());
     }
   };
 
   const focusMenuItem = (idx: number) => {
     if (idx < 0 || idx >= menuOptions.length) return false;
     applyMenuFocus(idx);
-    setTooltipTarget({ kind: 'item', index: idx }, menuLabels[idx] ?? '');
+    requestItemIntent(idx);
     return true;
   };
 
   const updateMenuTooltip = (idx: number, overField = false) => {
-    if (focusMenuItem(idx)) return;
-    setTooltipTargetForOverField(overField);
+    if (idx >= 0) {
+      applyMenuFocus(idx);
+      requestItemIntent(idx);
+      return;
+    }
+    if (overField) {
+      requestFieldIntent();
+      return;
+    }
+    requestHideIntent();
   };
 
   const updateFocusFromPoint = (px: number, py: number) => {
@@ -1297,13 +1326,12 @@ function makeVariantDropdown(
   };
 
   const syncClosedTooltipTarget = () => {
-    if (state.menuOpen || menuPhase !== 'closed') return;
+    if (state.menuOpen || state.menuPhase !== 'closed') return;
     if (state.focusMode === 'none') {
-      clearTooltipTarget();
+      requestHideIntent();
       return;
     }
-    clearTooltipTarget();
-    setFieldTooltipTarget();
+    requestFieldIntent();
   };
 
   let windowPointerMoveHandler: ((e: PointerEvent) => void) | null = null;
@@ -1554,7 +1582,7 @@ function makeVariantDropdown(
       if (localY < itemTop || localY > itemBottom) return -1;
       return idx;
     };
-
+    
     const isPointerOnScrollbar = (px: number, py: number) => {
       if (track) {
         const bounds = track.getBounds();
@@ -1652,7 +1680,7 @@ function makeVariantDropdown(
         drawItemBg();
         if (menu.visible && item.parent === menuContent && focusedIndex === idx) {
           if (menuTruncatedFlags[idx]) {
-            refreshTooltip();
+            requestItemIntent(idx);
           }
         }
       };
@@ -1695,7 +1723,6 @@ function makeVariantDropdown(
       item.on('pointerover', () => {
         applyMenuFocus(idx);
       });
-      item.on('pointerout', () => {});
       item.on('pointertap', (evt: any) => {
         evt.stopPropagation();
         if (!isPrimaryClick(evt)) return;
@@ -1706,9 +1733,9 @@ function makeVariantDropdown(
       });
       if (truncated) {
         item.on('pointerover', () => {
-          setTooltipTarget({ kind: 'item', index: idx }, menuLabels[idx] ?? '');
+          requestItemIntent(idx);
         });
-        item.on('pointerout', () => clearTooltipTarget());
+        item.on('pointerout', () => requestHideIntent());
       }
 
       menuContent.addChild(item);
@@ -2012,10 +2039,9 @@ function makeVariantDropdown(
   };
   let menuCloseSnapshot: Sprite | null = null;
   let menuCloseSnapshotTexture: Texture | null = null;
-  let menuPhase: 'closed' | 'opening' | 'open' | 'closing' = 'closed';
 
   const runMenuOpenAnimation = () => {
-    menuPhase = 'opening';
+    state.menuPhase = 'opening';
     menu.visible = true;
     menu.alpha = 0;
     menu.scale.set(1);
@@ -2040,16 +2066,13 @@ function makeVariantDropdown(
       },
       () => {
         const finishOpen = () => {
-          if (menuPhase === 'opening') {
-            menuPhase = 'open';
-            if (menuFocusIndex >= 0) {
-              setTooltipTarget({ kind: 'item', index: menuFocusIndex }, menuLabels[menuFocusIndex] ?? '');
-            }
-            refreshTooltip();
+          if (state.menuPhase === 'opening') {
+            state.menuPhase = 'open';
+            applyIntentIfReady();
           }
         };
         const waitItems = () => {
-          if (menuPhase !== 'opening') return;
+          if (state.menuPhase !== 'opening') return;
           if (performance.now() >= menuItemsFinishAt) {
             finishOpen();
             return;
@@ -2061,7 +2084,7 @@ function makeVariantDropdown(
     );
   };
 
-  const runMenuCloseAnimation = (snapshot: Sprite, onDone?: () => void) => {
+  const runMenuCloseAnimation = (snapshot: Sprite) => {
     if (!menuCloseAnim.active) {
       menuCloseAnim.active = true;
       menuCloseAnim.start = performance.now();
@@ -2082,10 +2105,10 @@ function makeVariantDropdown(
         return;
       }
       menuCloseAnim.active = false;
-      if (menuPhase === 'closing') {
-        menuPhase = 'closed';
+      if (state.menuPhase === 'closing') {
+        state.menuPhase = 'closed';
+        applyIntentIfReady();
       }
-      refreshTooltip();
       snapshot.visible = false;
       snapshot.alpha = 1;
       snapshot.scale.set(1);
@@ -2098,14 +2121,13 @@ function makeVariantDropdown(
         menuCloseSnapshot.removeFromParent();
         menuCloseSnapshot = null;
       }
-      if (onDone) onDone();
     };
     requestAnimationFrame(step);
   };
 
-  const closeMenu = (reason: 'pointer' | 'keyboard' | 'program' = 'program', onClosed?: () => void) => {
+  const closeMenu = (reason: 'pointer' | 'keyboard' | 'program' = 'program') => {
     state.menuOpen = false;
-    menuPhase = 'closing';
+    state.menuPhase = 'closing';
     if (reason !== 'program') {
       triggerClickAnim();
     }
@@ -2134,7 +2156,6 @@ function makeVariantDropdown(
       }
     }
     const restoreFieldTooltipAfterClose = reason === 'keyboard';
-    clearTooltipTarget();
     if (restoreFieldTooltipAfterClose) {
       state.focusMode = 'keyboard';
       setFieldFocus(true);
@@ -2183,47 +2204,8 @@ function makeVariantDropdown(
       window.removeEventListener('pointermove', menuPointerMoveHandler);
       menuPointerMoveHandler = null;
     }
-    const runAfterClickAnim = (fn: () => void) => {
-      if (!clickAnim.active) {
-        fn();
-        return;
-      }
-      const check = () => {
-        if (!clickAnim.active) {
-          fn();
-          return;
-        }
-        requestAnimationFrame(check);
-      };
-      requestAnimationFrame(check);
-    };
-
-    const afterClose = () => {
-      runAfterClickAnim(() => {
-        if (restoreFieldTooltipAfterClose) {
-          syncClosedTooltipTarget();
-        } else {
-          let overField = false;
-          if (labelTruncated && state.lastPointer.x >= 0) {
-            const bounds = bg.getBounds();
-            overField =
-              state.lastPointer.x >= bounds.x &&
-              state.lastPointer.x <= bounds.x + bounds.width &&
-              state.lastPointer.y >= bounds.y &&
-              state.lastPointer.y <= bounds.y + bounds.height;
-          }
-          if (overField) {
-            clearTooltipTarget();
-            setFieldTooltipTarget();
-          } else {
-            clearTooltipTarget();
-          }
-        }
-        if (onClosed) onClosed();
-      });
-    };
-
-    runMenuCloseAnimation(snapshot, afterClose);
+    requestFieldIntent();
+    runMenuCloseAnimation(snapshot);
   };
 
   const handleOutside = (evt: PointerEvent) => {
@@ -2250,11 +2232,15 @@ function makeVariantDropdown(
     if (e?.global) {
       setFieldFocus(true);
     }
-    clearTooltipTarget();
     menu.visible = true;
     state.menuOpen = true;
     setCaretTarget(true);
     rebuildMenu();
+    if (menuFocusIndex >= 0) {
+      requestItemIntent(menuFocusIndex);
+    } else {
+      requestHideIntent();
+    }
     runMenuOpenAnimation();
     outsideHandler = handleOutside;
     window.addEventListener('pointerdown', outsideHandler, { capture: true });
@@ -2287,7 +2273,7 @@ function makeVariantDropdown(
 
   bg.eventMode = 'static';
   const handleFieldMove = () => {
-    setFieldTooltipTarget();
+    requestFieldIntent();
     if (!state.menuOpen) {
       refreshIdleDelay();
     }
@@ -2333,7 +2319,7 @@ function makeVariantDropdown(
     dropdownHover = inside;
     if (wasKeyboard) {
       state.focusMode = inside ? 'mouse' : 'none';
-      clearTooltipTarget();
+      requestHideIntent();
       setFieldFocus(isFieldFocused());
       syncClosedTooltipTarget();
       if (inside) {
@@ -2354,10 +2340,10 @@ function makeVariantDropdown(
       stopIdleAnim();
     }
     if (!inside && state.focusMode === 'none' && !state.menuOpen) {
-      clearTooltipTarget();
+      requestHideIntent();
     }
     if (state.focusMode === 'none') {
-      clearTooltipTarget();
+      requestHideIntent();
     }
   };
   const handleWindowPointerDown = (e: PointerEvent) => {
@@ -2365,7 +2351,7 @@ function makeVariantDropdown(
     if (state.focusMode !== 'keyboard' || state.menuOpen) return;
     const pos = toCanvasPoint(e.clientX, e.clientY);
     state.focusMode = 'none';
-    clearTooltipTarget();
+    requestHideIntent();
     const bounds = bg.getBounds();
     const inside =
       pos.x >= bounds.x &&
@@ -2396,7 +2382,7 @@ function makeVariantDropdown(
       if (next && next.id !== currentDescriptor.id) {
         state.focusMode = 'keyboard';
         setFieldFocus(true);
-        setFieldTooltipTarget();
+        requestFieldIntent();
         requestVariantSwitch(next.id);
       }
       return;
@@ -2436,7 +2422,7 @@ function makeVariantDropdown(
     dropdownHover = true;
     state.focusMode = 'mouse';
     setFieldFocus(true);
-    setFieldTooltipTarget();
+    requestFieldIntent();
     if (!state.menuOpen) {
       refreshIdleDelay();
     }
@@ -2452,7 +2438,7 @@ function makeVariantDropdown(
     if (inside) return;
     dropdownHover = false;
     updateFocusFromPoint(pos.x, pos.y);
-    clearTooltipTarget();
+    requestHideIntent();
     stopIdleAnim();
   };
   bg.on('pointerover', onFieldOver);

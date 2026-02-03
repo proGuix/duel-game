@@ -1255,13 +1255,6 @@ function makeVariantDropdown(
     }
   };
 
-  const focusMenuItem = (idx: number) => {
-    if (idx < 0 || idx >= menuOptions.length) return false;
-    applyMenuFocus(idx);
-    requestItemIntent(idx);
-    return true;
-  };
-
     const updateFocusFromPoint = (px: number, py: number) => {
     const bounds = bg.getBounds();
     const inside =
@@ -1688,12 +1681,6 @@ function makeVariantDropdown(
           requestVariantSwitch(opt.id);
         }
       });
-      if (truncated) {
-        item.on('pointerover', () => {
-          requestItemIntent(idx);
-        });
-        item.on('pointerout', () => requestHideIntent());
-      }
 
       menuContent.addChild(item);
       menuItemNodes.push(item);
@@ -1864,16 +1851,16 @@ function makeVariantDropdown(
       applyScroll();
       const local = menu.toLocal({ x: e.clientX, y: e.clientY });
       const localY = local.y + scrollY - menuPad;
-        const idx = hitItemIndex(local.x, local.y + scrollY);
-        if (idx >= 0 && idx < options.length) {
-          app.renderer.events.setCursor('pointer');
-          applyMenuFocus(idx);
-          requestItemIntent(idx);
-        } else {
-          app.renderer.events.setCursor(isPointerOnScrollbar(px, py) ? 'pointer' : 'default');
-          requestHideIntent();
-        }
-      };
+      const idx = hitItemIndex(local.x, local.y + scrollY);
+      if (idx >= 0 && idx < options.length) {
+        app.renderer.events.setCursor('pointer');
+        applyMenuFocus(idx);
+        requestItemIntent(idx);
+      } else {
+        app.renderer.events.setCursor(isPointerOnScrollbar(px, py) ? 'pointer' : 'default');
+        requestHideIntent();
+      }
+    };
 
     if (menuWheelHandler) {
       window.removeEventListener('wheel', menuWheelHandler, { capture: true } as AddEventListenerOptions);
@@ -1903,6 +1890,7 @@ function makeVariantDropdown(
       const dir = e.key === 'ArrowDown' ? 1 : -1;
       const next = Math.max(0, Math.min(options.length - 1, menuFocusIndex + dir));
       applyMenuFocus(next);
+      requestItemIntent(next);
       const itemTop = menuPad + next * itemHeight;
       const itemBottom = itemTop + (itemHeight - 6);
       const desiredTop = itemTop - menuPad;
@@ -1913,7 +1901,6 @@ function makeVariantDropdown(
         scrollY = desiredBottom - menuHeight;
       }
       applyScroll();
-      focusMenuItem(next);
     };
 
     if (menuPointerMoveHandler) {

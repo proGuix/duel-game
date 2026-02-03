@@ -2238,12 +2238,6 @@ function makeVariantDropdown(
   });
 
   bg.eventMode = 'static';
-  const handleFieldMove = () => {
-    requestFieldIntent();
-    if (!state.menuOpen) {
-      refreshIdleDelay();
-    }
-  };
 
   container.openMenu = () => openMenu();
   container.closeMenu = () => closeMenu('program');
@@ -2296,18 +2290,19 @@ function makeVariantDropdown(
       state.focusMode = inside ? 'mouse' : 'none';
       setFieldFocus(isFieldFocused());
     }
-    if (inside) {
-      refreshIdleDelay();
-    } else {
-      stopIdleAnim();
-    }
-    if (!inside && state.focusMode === 'none' && !state.menuOpen) {
-      requestHideIntent();
-    }
-    if (state.focusMode === 'none') {
-      requestHideIntent();
-    }
-  };
+      if (inside) {
+        refreshIdleDelay();
+      } else {
+        stopIdleAnim();
+      }
+      if (!state.menuOpen) {
+        if (inside) {
+          requestFieldIntent();
+        } else if (state.focusMode === 'none') {
+          requestHideIntent();
+        }
+      }
+    };
   const handleWindowPointerDown = (e: PointerEvent) => {
     if (!isPrimaryClick(e)) return;
     if (state.focusMode !== 'keyboard' || state.menuOpen) return;
@@ -2379,18 +2374,9 @@ function makeVariantDropdown(
     }
     stopIdleAnim();
   };
-  const onFieldOver = (e: any) => {
-    dropdownHover = true;
-    state.focusMode = 'mouse';
-    setFieldFocus(true);
-    requestFieldIntent();
-    if (!state.menuOpen) {
-      refreshIdleDelay();
-    }
-  };
-  const onFieldOut = (e: any) => {
-    const pos = e.global ?? { x: 0, y: 0 };
-    const bounds = bg.getBounds();
+    const onFieldOut = (e: any) => {
+      const pos = e.global ?? { x: 0, y: 0 };
+      const bounds = bg.getBounds();
     const inside =
       pos.x >= bounds.x &&
       pos.x <= bounds.x + bounds.width &&
@@ -2402,20 +2388,14 @@ function makeVariantDropdown(
     requestHideIntent();
     stopIdleAnim();
   };
-  bg.on('pointerover', onFieldOver);
-  bg.on('pointerout', onFieldOut);
-  bg.on('pointermove', handleFieldMove);
+    bg.on('pointerout', onFieldOut);
 
 
-  label.eventMode = 'static';
-  label.on('pointerover', onFieldOver);
-  label.on('pointermove', handleFieldMove);
-  label.on('pointerout', onFieldOut);
+    label.eventMode = 'static';
+    label.on('pointerout', onFieldOut);
 
-  caret.eventMode = 'static';
-  caret.on('pointerover', onFieldOver);
-  caret.on('pointerout', onFieldOut);
-  caret.on('pointermove', handleFieldMove);
+    caret.eventMode = 'static';
+    caret.on('pointerout', onFieldOut);
 
   syncHoverFromPointer();
 

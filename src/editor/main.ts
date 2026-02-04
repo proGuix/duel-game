@@ -4,7 +4,6 @@ import {
   Graphics,
   BitmapText,
   Sprite,
-  Assets,
   Texture,
   BlurFilter,
   type TextStyleFontWeight,
@@ -43,7 +42,6 @@ let saveButtonRef: { setPrimary?: (primary: boolean) => void } | null = null;
 let paletteDragNode: BTNodeDef | null = null;
 let dragNode: { path: number[]; node: BTNodeDef } | null = null;
 let ghostContainer: Container | null = null;
-let treeMask: Graphics;
 let ghostAnchor = { dx: 0, dy: 0 };
 let treeContentLeft = 0;
 let activeNamePrompt: Container | null = null;
@@ -347,7 +345,6 @@ function redrawTree() {
   const mask = new Graphics();
   mask.roundRect(treeX, treeY, treeW, treeH, 12);
   mask.fill(0xffffff);
-  treeMask = mask;
   treeLayer.addChild(mask);
 
   const treeContent = new Container();
@@ -643,8 +640,6 @@ function makeVariantDropdown(
     hoveredIndex: -1,
     lastPointer: { x: -1, y: -1 }
   };
-  let dropdownHover = false;
-  dropdownHover = state.focusMode !== 'none';
 
   const bg = new Graphics();
 
@@ -1062,14 +1057,6 @@ function makeVariantDropdown(
     const overlapW = Math.max(0, Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x));
     const overlapH = Math.max(0, Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y));
     return overlapW * overlapH;
-  };
-
-  const getDropdownAvoidRects = (): Rect[] => {
-    const rects: Rect[] = [getFieldBoundsRect()];
-    if (menu.visible) {
-      rects.push(rectFromBounds(menuBg.getBounds()));
-    }
-    return rects;
   };
 
   const candidateCenter = (candidate: TooltipCandidate, bodyW: number, bodyH: number) => ({
@@ -1821,7 +1808,6 @@ function makeVariantDropdown(
       scrollY += e.deltaY * 0.6;
       applyScroll();
       const local = menu.toLocal({ x: e.clientX, y: e.clientY });
-      const localY = local.y + scrollY - menuPad;
       const idx = hitItemIndex(local.x, local.y + scrollY);
       if (idx >= 0 && idx < options.length) {
         app.renderer.events.setCursor('pointer');
@@ -2228,7 +2214,6 @@ function makeVariantDropdown(
       pos.x <= bounds.x + bounds.width &&
       pos.y >= bounds.y &&
       pos.y <= bounds.y + bounds.height;
-    dropdownHover = inside;
     const nextFocus = inside ? 'mouse' : 'none';
     if (state.focusMode !== nextFocus) {
       state.focusMode = nextFocus;

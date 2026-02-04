@@ -2235,6 +2235,7 @@ function makeVariantDropdown(
   };
   container.syncSelection = () => {
     syncHoverFromPointer();
+    applyTooltipIntentIfReady();
   };
   const handleWindowPointerMove = (e: PointerEvent) => {
     if (activeNamePrompt) return;

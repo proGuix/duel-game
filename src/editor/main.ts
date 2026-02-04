@@ -2254,7 +2254,6 @@ function makeVariantDropdown(
     const pos = toCanvasPoint(e.clientX, e.clientY);
     state.lastPointer = { x: pos.x, y: pos.y };
     if (state.menuOpen) return;
-    const wasKeyboard = state.focusMode === 'keyboard';
     const bounds = bg.getBounds();
     const inside =
       pos.x >= bounds.x &&
@@ -2262,34 +2261,19 @@ function makeVariantDropdown(
       pos.y >= bounds.y &&
       pos.y <= bounds.y + bounds.height;
     dropdownHover = inside;
-    if (wasKeyboard) {
-      state.focusMode = inside ? 'mouse' : 'none';
+    const nextFocus = inside ? 'mouse' : 'none';
+    if (state.focusMode !== nextFocus) {
+      state.focusMode = nextFocus;
+      setFieldFocus(isFieldFocused());
+    }
+    if (inside) {
+      refreshIdleDelay();
+      requestFieldIntent();
+    } else {
+      stopIdleAnim();
       requestHideIntent();
-      setFieldFocus(isFieldFocused());
-      if (inside) {
-        refreshIdleDelay();
-      } else {
-        stopIdleAnim();
-      }
-      return;
     }
-    if (inside !== (state.focusMode !== 'none')) {
-      state.focusMode = inside ? 'mouse' : 'none';
-      setFieldFocus(isFieldFocused());
-    }
-      if (inside) {
-        refreshIdleDelay();
-      } else {
-        stopIdleAnim();
-      }
-      if (!state.menuOpen) {
-        if (inside) {
-          requestFieldIntent();
-        } else if (state.focusMode === 'none') {
-          requestHideIntent();
-        }
-      }
-    };
+  };
   const handleWindowPointerDown = (e: PointerEvent) => {
     if (!isPrimaryClick(e)) return;
     if (state.focusMode !== 'keyboard' || state.menuOpen) return;
@@ -2361,28 +2345,11 @@ function makeVariantDropdown(
     }
     stopIdleAnim();
   };
-    const onFieldOut = (e: any) => {
-      const pos = e.global ?? { x: 0, y: 0 };
-      const bounds = bg.getBounds();
-    const inside =
-      pos.x >= bounds.x &&
-      pos.x <= bounds.x + bounds.width &&
-      pos.y >= bounds.y &&
-      pos.y <= bounds.y + bounds.height;
-    if (inside) return;
-    dropdownHover = false;
-    updateFocusFromPoint(pos.x, pos.y);
-    requestHideIntent();
-    stopIdleAnim();
-  };
-    bg.on('pointerout', onFieldOut);
 
 
     label.eventMode = 'static';
-    label.on('pointerout', onFieldOut);
 
     caret.eventMode = 'static';
-    caret.on('pointerout', onFieldOut);
 
   syncHoverFromPointer();
 

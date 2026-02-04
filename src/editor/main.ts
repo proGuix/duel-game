@@ -1255,22 +1255,6 @@ function makeVariantDropdown(
     }
   };
 
-  const syncHoverFromPointer = () => {
-    if (state.focusMode === 'keyboard' && !state.menuOpen) {
-      setFieldFocus(true);
-      return;
-    }
-    if (state.lastPointer.x < 0) return;
-    const bounds = bg.getBounds();
-    dropdownHover =
-      state.lastPointer.x >= bounds.x &&
-      state.lastPointer.x <= bounds.x + bounds.width &&
-      state.lastPointer.y >= bounds.y &&
-      state.lastPointer.y <= bounds.y + bounds.height;
-    state.focusMode = dropdownHover ? 'mouse' : 'none';
-    setFieldFocus(isFieldFocused());
-  };
-
   let windowPointerMoveHandler: ((e: PointerEvent) => void) | null = null;
   let windowPointerDownHandler: ((e: PointerEvent) => void) | null = null;
   let windowKeyHandler: ((e: KeyboardEvent) => void) | null = null;
@@ -2073,9 +2057,6 @@ function makeVariantDropdown(
       triggerClickAnim();
     }
     setCaretTarget(false);
-    if (reason !== 'keyboard') {
-      syncHoverFromPointer();
-    }
     app.renderer.events.setCursor('default');
     const resetCursorOnUp = () => {
       if (state.lastPointer.x >= 0) {
@@ -2234,7 +2215,6 @@ function makeVariantDropdown(
     }
   };
   container.syncSelection = () => {
-    syncHoverFromPointer();
     applyTooltipIntentIfReady();
   };
   const handleWindowPointerMove = (e: PointerEvent) => {
@@ -2339,7 +2319,6 @@ function makeVariantDropdown(
 
     caret.eventMode = 'static';
 
-  syncHoverFromPointer();
 
   return container;
 }

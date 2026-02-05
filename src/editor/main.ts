@@ -1323,7 +1323,7 @@ function makeVariantDropdown(
     const menuBgColor = 0x1b2232;
     const baseMenuWidth = w;
     const menuShadow = new Graphics();
-    menuShadow.filters = [new BlurFilter(16)];
+      menuShadow.filters = [new BlurFilter({ strength: 16 })];
     menuShadow.position.set(0, 6);
     menuShadow.eventMode = 'none';
     menuShadow.zIndex = 0;

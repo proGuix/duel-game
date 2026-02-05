@@ -906,6 +906,17 @@ function makeVariantDropdown(
   const tooltip = new Container();
   tooltip.visible = false;
   tooltip.zIndex = 9999;
+  let tooltipHover = false;
+  let tooltipAnchorRect: Rect | null = null;
+  let tooltipBodyRect: Rect | null = null;
+  let tooltipCorridor: { x: number; y: number }[] | null = null;
+  tooltip.eventMode = 'static';
+  tooltip.on('pointerover', () => {
+    tooltipHover = true;
+  });
+  tooltip.on('pointerout', () => {
+    tooltipHover = false;
+  });
   const tooltipBg = new Graphics();
   const tooltipText = createBitmapTextNode('', { fill: 0xdfe8ff, fontSize: 12, fontWeight: '500' });
   const tooltipMeasure = createBitmapTextNode('', { fill: 0xdfe8ff, fontSize: 12, fontWeight: '500' });
@@ -978,11 +989,14 @@ function makeVariantDropdown(
     baseH: 0,
     anchor: null as { x: number; y: number; width: number; height: number } | null
   };
-  const hideTooltip = () => {
-    tooltipState.visible = false;
-    tooltipState.anchor = null;
-    tooltip.visible = false;
-  };
+    const hideTooltip = () => {
+      tooltipState.visible = false;
+      tooltipState.anchor = null;
+      tooltip.visible = false;
+      tooltipAnchorRect = null;
+      tooltipBodyRect = null;
+      tooltipCorridor = null;
+    };
 
   const drawTooltipAt = () => {
     if (!tooltipState.anchor) return;
@@ -1037,9 +1051,34 @@ function makeVariantDropdown(
       tooltipBg.fill({ color: 0x101521, alpha: 0.95 });
       tooltipBg.stroke({ width: 1, color: 0x4da3ff, alpha: 0.6 });
     }
-    tooltipText.position.set(rectX + padding, rectY + padding);
-    tooltip.visible = true;
-  };
+      tooltipText.position.set(rectX + padding, rectY + padding);
+      tooltip.visible = true;
+      tooltipAnchorRect = {
+        x: tooltipState.anchor.x,
+        y: tooltipState.anchor.y,
+        width: tooltipState.anchor.width,
+        height: tooltipState.anchor.height
+      };
+      tooltipBodyRect = {
+        x: currentX + rectX,
+        y: currentY + rectY,
+        width: baseW,
+        height: baseH
+      };
+      const anchorPts = [
+        { x: tooltipAnchorRect.x, y: tooltipAnchorRect.y },
+        { x: tooltipAnchorRect.x + tooltipAnchorRect.width, y: tooltipAnchorRect.y },
+        { x: tooltipAnchorRect.x + tooltipAnchorRect.width, y: tooltipAnchorRect.y + tooltipAnchorRect.height },
+        { x: tooltipAnchorRect.x, y: tooltipAnchorRect.y + tooltipAnchorRect.height }
+      ];
+      const bodyPts = [
+        { x: tooltipBodyRect.x, y: tooltipBodyRect.y },
+        { x: tooltipBodyRect.x + tooltipBodyRect.width, y: tooltipBodyRect.y },
+        { x: tooltipBodyRect.x + tooltipBodyRect.width, y: tooltipBodyRect.y + tooltipBodyRect.height },
+        { x: tooltipBodyRect.x, y: tooltipBodyRect.y + tooltipBodyRect.height }
+      ];
+      tooltipCorridor = convexHull([...anchorPts, ...bodyPts]);
+    };
 
   type TooltipSide = 'top' | 'bottom' | 'left' | 'right';
   type Rect = { x: number; y: number; width: number; height: number };
@@ -1180,17 +1219,33 @@ function makeVariantDropdown(
   type TooltipTarget = { kind: 'none' } | { kind: 'field' } | { kind: 'item'; index: number };
   type TooltipIntent =
     | { type: 'show'; target: TooltipTarget; ready: () => boolean }
-    | { type: 'hide' };
+    | { type: 'hide'; ready: () => boolean };
 
-  let tooltipIntent: TooltipIntent = { type: 'hide' };
+  let tooltipIntent: TooltipIntent = { type: 'hide', ready: () => true };
 
   const requestTooltipIntent = (intent: TooltipIntent) => {
     tooltipIntent = intent;
     applyTooltipIntentIfReady();
   };
 
-  const requestTooltipHide = () => {
-    requestTooltipIntent({ type: 'hide' });
+  const requestTooltipHide = (opts?: { force?: boolean }) => {
+    requestTooltipIntent({
+      type: 'hide',
+      ready: () => {
+        if (opts?.force) return true;
+        if (!tooltip.visible) return true;
+        if (tooltipHover) return false;
+        if (tooltipAnchorRect && tooltipBodyRect && tooltipCorridor) {
+          const p = state.lastPointer;
+          const insideAnchor = rectContainsPoint(tooltipAnchorRect, p.x, p.y);
+          const insideTooltip = rectContainsPoint(tooltipBodyRect, p.x, p.y);
+          if (insideAnchor || insideTooltip) return false;
+          const insideCorridor = pointInPolygon(p, tooltipCorridor);
+          if (insideCorridor) return false;
+        }
+        return true;
+      }
+    });
   };
 
   const requestTooltipField = () => {
@@ -1205,6 +1260,48 @@ function makeVariantDropdown(
         return true;
       }
     });
+  };
+
+  const rectContainsPoint = (rect: Rect, x: number, y: number) =>
+    x >= rect.x && x <= rect.x + rect.width && y >= rect.y && y <= rect.y + rect.height;
+
+  const pointInPolygon = (p: { x: number; y: number }, poly: { x: number; y: number }[]) => {
+    let inside = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const xi = poly[i].x;
+      const yi = poly[i].y;
+      const xj = poly[j].x;
+      const yj = poly[j].y;
+      const intersect =
+        yi > p.y !== yj > p.y && p.x < ((xj - xi) * (p.y - yi)) / (yj - yi) + xi;
+      if (intersect) inside = !inside;
+    }
+    return inside;
+  };
+
+  const convexHull = (points: { x: number; y: number }[]) => {
+    if (points.length <= 3) return points;
+    const pts = [...points].sort((a, b) => (a.x === b.x ? a.y - b.y : a.x - b.x));
+    const cross = (o: { x: number; y: number }, a: { x: number; y: number }, b: { x: number; y: number }) =>
+      (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+    const lower: { x: number; y: number }[] = [];
+    for (const p of pts) {
+      while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) {
+        lower.pop();
+      }
+      lower.push(p);
+    }
+    const upper: { x: number; y: number }[] = [];
+    for (let i = pts.length - 1; i >= 0; i -= 1) {
+      const p = pts[i];
+      while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) {
+        upper.pop();
+      }
+      upper.push(p);
+    }
+    upper.pop();
+    lower.pop();
+    return lower.concat(upper);
   };
 
   const requestTooltipItem = (idx: number) => {
@@ -1224,6 +1321,7 @@ function makeVariantDropdown(
 
   const applyTooltipIntentIfReady = () => {
     if (tooltipIntent.type === 'hide') {
+      if (!tooltipIntent.ready()) return;
       hideTooltip();
       return;
     }
@@ -1806,15 +1904,15 @@ function makeVariantDropdown(
       applyScroll();
       const local = menu.toLocal({ x: e.clientX, y: e.clientY });
       const idx = hitItemIndex(local.x, local.y + scrollY);
-      if (idx >= 0 && idx < options.length) {
-        app.renderer.events.setCursor('pointer');
-        applyMenuFocus(idx);
-        requestTooltipItem(idx);
-      } else {
-        app.renderer.events.setCursor(isPointerOnScrollbar(px, py) ? 'pointer' : 'default');
-        requestTooltipHide();
-      }
-    };
+        if (idx >= 0 && idx < options.length) {
+          app.renderer.events.setCursor('pointer');
+          applyMenuFocus(idx);
+          requestTooltipItem(idx);
+        } else {
+          app.renderer.events.setCursor(isPointerOnScrollbar(px, py) ? 'pointer' : 'default');
+          requestTooltipHide({ force: true });
+        }
+      };
 
     if (menuWheelHandler) {
       window.removeEventListener('wheel', menuWheelHandler, { capture: true } as AddEventListenerOptions);
@@ -2216,13 +2314,13 @@ function makeVariantDropdown(
       state.focusMode = nextFocus;
       setFieldFocus(isFieldFocused());
     }
-    if (inside) {
-      refreshIdleDelay();
-      requestTooltipField();
-    } else {
-      stopIdleAnim();
-      requestTooltipHide();
-    }
+      if (inside) {
+        refreshIdleDelay();
+        requestTooltipField();
+      } else {
+        stopIdleAnim();
+        requestTooltipHide();
+      }
   };
   const handleWindowPointerDown = (e: PointerEvent) => {
     if (!isPrimaryClick(e)) return;

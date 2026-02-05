@@ -1317,9 +1317,6 @@ function makeVariantDropdown(
       requestAnimationFrame(() => {
         app.renderer.events.setCursor(cursor);
       });
-      if (idx >= 0) {
-        applyMenuFocus(idx, false);
-      }
     });
 
     const menuRadius = 12;

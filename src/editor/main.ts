@@ -917,6 +917,9 @@ function makeVariantDropdown(
   tooltip.on('pointerout', () => {
     tooltipHover = false;
   });
+  tooltip.on('pointerdown', (e) => e.stopPropagation());
+  tooltip.on('pointerup', (e) => e.stopPropagation());
+  tooltip.on('pointertap', (e) => e.stopPropagation());
   const tooltipBg = new Graphics();
   const tooltipText = createBitmapTextNode('', { fill: 0xdfe8ff, fontSize: 12, fontWeight: '500' });
   const tooltipMeasure = createBitmapTextNode('', { fill: 0xdfe8ff, fontSize: 12, fontWeight: '500' });
@@ -993,6 +996,7 @@ function makeVariantDropdown(
       tooltipState.visible = false;
       tooltipState.anchor = null;
       tooltip.visible = false;
+      tooltip.hitArea = null;
       tooltipAnchorRect = null;
       tooltipBodyRect = null;
       tooltipCorridor = null;
@@ -1051,14 +1055,15 @@ function makeVariantDropdown(
       tooltipBg.fill({ color: 0x101521, alpha: 0.95 });
       tooltipBg.stroke({ width: 1, color: 0x4da3ff, alpha: 0.6 });
     }
-      tooltipText.position.set(rectX + padding, rectY + padding);
-      tooltip.visible = true;
-      tooltipAnchorRect = {
-        x: tooltipState.anchor.x,
-        y: tooltipState.anchor.y,
-        width: tooltipState.anchor.width,
-        height: tooltipState.anchor.height
-      };
+    tooltipText.position.set(rectX + padding, rectY + padding);
+    tooltip.visible = true;
+    tooltip.hitArea = new Rectangle(rectX, rectY, baseW, baseH);
+    tooltipAnchorRect = {
+      x: tooltipState.anchor.x,
+      y: tooltipState.anchor.y,
+      width: tooltipState.anchor.width,
+      height: tooltipState.anchor.height
+    };
       tooltipBodyRect = {
         x: currentX + rectX,
         y: currentY + rectY,
@@ -2172,6 +2177,9 @@ function makeVariantDropdown(
   const handleOutside = (evt: PointerEvent) => {
     if (!isPrimaryClick(evt)) return;
     const { x: px, y: py } = toCanvasPoint(evt.clientX, evt.clientY);
+    if (tooltipBodyRect && rectContainsPoint(tooltipBodyRect, px, py)) {
+      return;
+    }
     const bounds = bg.getBounds();
     const menuBounds = menu.getBounds();
     const left = Math.min(bounds.x, menuBounds.x);

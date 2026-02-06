@@ -1374,7 +1374,6 @@ function makeVariantDropdown(
   let menuDragHandler: ((e: PointerEvent) => void) | null = null;
   let menuDragEndHandler: ((e: PointerEvent) => void) | null = null;
   let menuKeyHandler: ((e: KeyboardEvent) => void) | null = null;
-  let menuPointerMoveHandler: ((e: PointerEvent) => void) | null = null;
   let menuFocusIndex = -1;
   let menuOptions: ReturnType<typeof listBehaviorOptions> = [];
   let menuItemBoundsGetters: Array<() => { x: number; y: number; width: number; height: number }> = [];
@@ -1383,6 +1382,7 @@ function makeVariantDropdown(
   let menuHoverProgress: number[] = [];
   let menuItemNodes: Container[] = [];
   let menuLayout = { menuHeight: 0, menuPad: 0, scrollY: 0 };
+  let hitItemIndex: (localX: number, localY: number) => number = () => -1;
   let applyMenuFocus: (idx: number, animate?: boolean) => void = (idx) => {
     menuFocusIndex = idx;
   };
@@ -1395,19 +1395,19 @@ function makeVariantDropdown(
     menuLabels = [];
     menuHoverProgress = [];
     menuItemNodes = [];
-    const menuPad = 6;
-    const contentHeight = options.length * itemHeight + menuPad * 2 - 6;
+    menuLayout.menuPad = 6;
+    const contentHeight = options.length * itemHeight + menuLayout.menuPad * 2 - 6;
     const maxMenuHeight = 320;
-    const menuHeight = Math.min(contentHeight, maxMenuHeight);
+    menuLayout.menuHeight = Math.min(contentHeight, maxMenuHeight);
     menu.sortableChildren = true;
     menu.eventMode = 'static';
-    menu.hitArea = new Rectangle(0, 0, w, menuHeight);
+    menu.hitArea = new Rectangle(0, 0, w, menuLayout.menuHeight);
     menu.on('pointerdown', (e: any) => {
       e.stopPropagation();
       if (!isPrimaryClick(e)) return;
       const global = e.global ?? { x: 0, y: 0 };
       const local = menu.toLocal(global);
-      const idx = hitItemIndex(local.x, local.y + scrollY);
+      const idx = hitItemIndex(local.x, local.y + menuLayout.scrollY);
       const px = global.x;
       const py = global.y;
       const cursor = idx >= 0 || isPointerOnScrollbar(px, py) ? 'pointer' : 'default';
@@ -1443,16 +1443,16 @@ function makeVariantDropdown(
 
     const redrawMenuChrome = (menuWidth: number) => {
       menuShadow.clear();
-      menuShadow.roundRect(-6, -4, menuWidth + 12, menuHeight + 12, menuRadius + 4);
+    menuShadow.roundRect(-6, -4, menuWidth + 12, menuLayout.menuHeight + 12, menuRadius + 4);
       menuShadow.fill({ color: 0x000000, alpha: 0.6 });
       menuBg.clear();
-      menuBg.roundRect(0, 0, menuWidth, menuHeight, menuRadius);
+      menuBg.roundRect(0, 0, menuWidth, menuLayout.menuHeight, menuRadius);
       menuBg.fill({ color: menuBgColor, alpha: 0.98 });
       menuGlow.clear();
-      menuGlow.roundRect(1.5, 1.5, menuWidth - 3, menuHeight - 3, menuRadius - 2);
+      menuGlow.roundRect(1.5, 1.5, menuWidth - 3, menuLayout.menuHeight - 3, menuRadius - 2);
       menuGlow.stroke({ width: 1, color: 0x6ea8ff, alpha: 0.08 });
       menuMask.clear();
-      menuMask.roundRect(0, 0, menuWidth, menuHeight, menuRadius);
+      menuMask.roundRect(0, 0, menuWidth, menuLayout.menuHeight, menuRadius);
       menuMask.fill({ color: 0xffffff, alpha: 1 });
     };
     redrawMenuChrome(w);
@@ -1462,8 +1462,7 @@ function makeVariantDropdown(
     menuContent.zIndex = 3;
     menu.addChild(menuContent);
 
-    let scrollY = 0;
-    const maxScroll = Math.max(0, contentHeight - menuHeight);
+    const maxScroll = Math.max(0, contentHeight - menuLayout.menuHeight);
     const itemRightPad = maxScroll > 0 ? 14 : 0;
     let thumb: Graphics | null = null;
     let track: Graphics | null = null;
@@ -1477,34 +1476,28 @@ function makeVariantDropdown(
     const trackPad = 6;
     const trackInset = 1;
     const trackRightInset = 4;
-    const trackHeight = Math.max(0, menuHeight - trackPad * 2);
+    const trackHeight = Math.max(0, menuLayout.menuHeight - trackPad * 2);
     const trackInnerY = trackPad + trackInset;
     const trackInnerHeight = Math.max(0, trackHeight - trackInset * 2);
     const thumbMinHeight = 18;
     const thumbHeight = maxScroll > 0
-      ? Math.max(thumbMinHeight, (menuHeight / contentHeight) * trackInnerHeight)
+      ? Math.max(thumbMinHeight, (menuLayout.menuHeight / contentHeight) * trackInnerHeight)
       : trackInnerHeight;
 
     const updateThumb = () => {
       if (!thumb || maxScroll <= 0) return;
-      const ratio = scrollY / maxScroll;
+      const ratio = menuLayout.scrollY / maxScroll;
       const available = trackInnerHeight - thumbHeight;
       thumb.y = trackInnerY + ratio * available;
       thumb.hitArea = new Rectangle(0, 0, trackWidth, thumbHeight);
     };
 
     const applyScroll = () => {
-      scrollY = Math.max(0, Math.min(maxScroll, scrollY));
-      menuContent.y = -scrollY;
+      menuLayout.scrollY = Math.max(0, Math.min(maxScroll, menuLayout.scrollY));
+      menuContent.y = -menuLayout.scrollY;
       updateThumb();
     };
     applyScroll();
-    const updateMenuLayout = () => {
-      menuLayout.menuHeight = menuHeight;
-      menuLayout.menuPad = menuPad;
-      menuLayout.scrollY = scrollY;
-    };
-    updateMenuLayout();
 
     const drawFns: Array<(focused: boolean) => void> = [];
     const hoverSetters: Array<(t: number) => void> = [];
@@ -1564,22 +1557,22 @@ function makeVariantDropdown(
     const startGhostSlide = (fromIndex: number, toIndex: number) => {
       if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return;
       ghostHighlight.visible = true;
-      ghostHighlight.y = menuPad + fromIndex * itemHeight;
+      ghostHighlight.y = menuLayout.menuPad + fromIndex * itemHeight;
       ghostAnim.active = true;
       ghostAnim.start = performance.now();
       ghostAnim.startY = ghostHighlight.y;
-      ghostAnim.endY = menuPad + toIndex * itemHeight;
+      ghostAnim.endY = menuLayout.menuPad + toIndex * itemHeight;
       if (!ghostRaf) {
         ghostRaf = requestAnimationFrame(runGhostAnim);
       }
     };
 
-    const hitItemIndex = (localX: number, localY: number) => {
+    hitItemIndex = (localX: number, localY: number) => {
       if (localX < itemX || localX > itemX + itemWidth) return -1;
-      const offsetY = localY - menuPad;
+      const offsetY = localY - menuLayout.menuPad;
       if (offsetY < 0) return -1;
       const idx = Math.floor(offsetY / itemHeight);
-      const itemTop = menuPad + idx * itemHeight;
+      const itemTop = menuLayout.menuPad + idx * itemHeight;
       const itemBottom = itemTop + itemInnerHeight;
       if (idx < 0 || idx >= options.length) return -1;
       if (localY < itemTop || localY > itemBottom) return -1;
@@ -1629,7 +1622,7 @@ function makeVariantDropdown(
 
     options.forEach((opt, idx) => {
       const item = new Container();
-      item.position.set(0, menuPad + idx * itemHeight);
+      item.position.set(0, menuLayout.menuPad + idx * itemHeight);
       item.zIndex = 1;
       const isCurrent = opt.id === currentDescriptor.id;
       const btnBg = new Graphics();
@@ -1712,7 +1705,7 @@ function makeVariantDropdown(
       if (isCurrent) selectedIndex = idx;
       if (isCurrent) {
         const marker = new Graphics();
-        const markerY = menuPad + idx * itemHeight;
+        const markerY = menuLayout.menuPad + idx * itemHeight;
         const markerH = itemInnerHeight;
         marker.roundRect(0, markerY, markerWidth, markerH, 2);
         marker.fill({ color: 0x8bb9ff, alpha: 0.9 });
@@ -1740,11 +1733,10 @@ function makeVariantDropdown(
     });
 
     if (selectedIndex >= 0) {
-      const itemTop = menuPad + selectedIndex * itemHeight;
+      const itemTop = menuLayout.menuPad + selectedIndex * itemHeight;
       const itemCenter = itemTop + (itemHeight - 6) / 2;
-      scrollY = itemCenter - menuHeight / 2;
+      menuLayout.scrollY = itemCenter - menuLayout.menuHeight / 2;
       applyScroll();
-      updateMenuLayout();
       setFocusIndex(selectedIndex);
       menuFocusIndex = selectedIndex;
     }
@@ -1785,7 +1777,7 @@ function makeVariantDropdown(
         const menuWidth = baseMenuWidth + extra;
         menu.x = 0;
         trackX = menuWidth - trackRightInset - trackWidth - extra / 2;
-        menu.hitArea = new Rectangle(0, 0, menuWidth, menuHeight);
+        menu.hitArea = new Rectangle(0, 0, menuWidth, menuLayout.menuHeight);
         redrawMenuChrome(menuWidth);
         trackLocal.position.set(trackX, trackPad);
         if (thumb) {
@@ -1831,7 +1823,7 @@ function makeVariantDropdown(
         const available = trackInnerHeight - thumbHeight;
         const clamped = Math.max(trackInnerY, Math.min(trackInnerY + available, thumbY));
         const ratio = available > 0 ? (clamped - trackInnerY) / available : 0;
-        scrollY = ratio * maxScroll;
+        menuLayout.scrollY = ratio * maxScroll;
         applyScroll();
       };
 
@@ -1900,10 +1892,10 @@ function makeVariantDropdown(
       }
       e.preventDefault();
       e.stopImmediatePropagation();
-      scrollY += e.deltaY * 0.6;
+      menuLayout.scrollY += e.deltaY * 0.6;
       applyScroll();
       const local = menu.toLocal({ x: e.clientX, y: e.clientY });
-      const idx = hitItemIndex(local.x, local.y + scrollY);
+      const idx = hitItemIndex(local.x, local.y + menuLayout.scrollY);
         if (idx >= 0 && idx < options.length) {
           app.renderer.events.setCursor('pointer');
           applyMenuFocus(idx);
@@ -1943,47 +1935,18 @@ function makeVariantDropdown(
       const next = Math.max(0, Math.min(options.length - 1, menuFocusIndex + dir));
       applyMenuFocus(next);
       requestTooltipItem(next);
-      const itemTop = menuPad + next * itemHeight;
+      const itemTop = menuLayout.menuPad + next * itemHeight;
       const itemBottom = itemTop + (itemHeight - 6);
-      const desiredTop = itemTop - menuPad;
-      const desiredBottom = itemBottom + menuPad;
-      if (desiredTop < scrollY) {
-        scrollY = desiredTop;
-      } else if (desiredBottom > scrollY + menuHeight) {
-        scrollY = desiredBottom - menuHeight;
+      const desiredTop = itemTop - menuLayout.menuPad;
+      const desiredBottom = itemBottom + menuLayout.menuPad;
+      if (desiredTop < menuLayout.scrollY) {
+        menuLayout.scrollY = desiredTop;
+      } else if (desiredBottom > menuLayout.scrollY + menuLayout.menuHeight) {
+        menuLayout.scrollY = desiredBottom - menuLayout.menuHeight;
       }
       applyScroll();
     };
 
-    if (menuPointerMoveHandler) {
-      window.removeEventListener('pointermove', menuPointerMoveHandler);
-    }
-    menuPointerMoveHandler = (e: PointerEvent) => {
-      if (!menu.visible) return;
-      const { x: px, y: py } = toCanvasPoint(e.clientX, e.clientY);
-      const local = menu.toLocal({ x: e.clientX, y: e.clientY });
-      const fieldBounds = bg.getBounds();
-        const overField =
-          px >= fieldBounds.x &&
-          px <= fieldBounds.x + fieldBounds.width &&
-          py >= fieldBounds.y &&
-          py <= fieldBounds.y + fieldBounds.height;
-        if (local.x < 0 || local.x > w || local.y < 0 || local.y > menuHeight) {
-          if (overField) {
-            requestTooltipField();
-          } else {
-            requestTooltipHide();
-          }
-          return;
-        }
-        const idx = hitItemIndex(local.x, local.y + scrollY);
-        if (idx >= 0) {
-          applyMenuFocus(idx);
-          requestTooltipItem(idx);
-          return;
-        }
-        requestTooltipHide();
-      };
   };
 
   rebuildMenu();
@@ -2202,10 +2165,6 @@ function makeVariantDropdown(
       window.removeEventListener('keydown', menuKeyHandler);
       menuKeyHandler = null;
     }
-    if (menuPointerMoveHandler) {
-      window.removeEventListener('pointermove', menuPointerMoveHandler);
-      menuPointerMoveHandler = null;
-    }
     requestTooltipField();
     runMenuCloseAnimation(snapshot);
   };
@@ -2258,9 +2217,6 @@ function makeVariantDropdown(
     if (menuKeyHandler) {
       window.addEventListener('keydown', menuKeyHandler);
     }
-    if (menuPointerMoveHandler) {
-      window.addEventListener('pointermove', menuPointerMoveHandler);
-    }
   };
 
   [bg, label, caret].forEach((sprite) => {
@@ -2298,11 +2254,38 @@ function makeVariantDropdown(
   container.syncSelection = () => {
     applyTooltipIntentIfReady();
   };
-  const handleWindowPointerMove = (e: PointerEvent) => {
+  const handlePointerMove = (e: PointerEvent) => {
     if (activeNamePrompt) return;
     const pos = toCanvasPoint(e.clientX, e.clientY);
     state.lastPointer = { x: pos.x, y: pos.y };
-    if (state.menuOpen) return;
+
+    if (state.menuOpen) {
+      if (!menu.visible) return;
+      const local = menu.toLocal({ x: e.clientX, y: e.clientY });
+      const fieldBounds = bg.getBounds();
+      const overField =
+        pos.x >= fieldBounds.x &&
+        pos.x <= fieldBounds.x + fieldBounds.width &&
+        pos.y >= fieldBounds.y &&
+        pos.y <= fieldBounds.y + fieldBounds.height;
+      if (local.x < 0 || local.x > w || local.y < 0 || local.y > menuLayout.menuHeight) {
+        if (overField) {
+          requestTooltipField();
+        } else {
+          requestTooltipHide();
+        }
+        return;
+      }
+      const idx = hitItemIndex(local.x, local.y + menuLayout.scrollY);
+      if (idx >= 0) {
+        applyMenuFocus(idx);
+        requestTooltipItem(idx);
+        return;
+      }
+      requestTooltipHide();
+      return;
+    }
+
     const bounds = bg.getBounds();
     const inside =
       pos.x >= bounds.x &&
@@ -2314,13 +2297,13 @@ function makeVariantDropdown(
       state.focusMode = nextFocus;
       setFieldFocus(isFieldFocused());
     }
-      if (inside) {
-        refreshIdleDelay();
-        requestTooltipField();
-      } else {
-        stopIdleAnim();
-        requestTooltipHide();
-      }
+    if (inside) {
+      refreshIdleDelay();
+      requestTooltipField();
+    } else {
+      stopIdleAnim();
+      requestTooltipHide();
+    }
   };
   const handleWindowPointerDown = (e: PointerEvent) => {
     if (!isPrimaryClick(e)) return;
@@ -2372,10 +2355,10 @@ function makeVariantDropdown(
       closeMenu('keyboard');
     }
   };
-  windowPointerMoveHandler = handleWindowPointerMove;
+  windowPointerMoveHandler = handlePointerMove;
   windowKeyHandler = handleWindowKeyDown;
   windowPointerDownHandler = handleWindowPointerDown;
-  window.addEventListener('pointermove', handleWindowPointerMove);
+  window.addEventListener('pointermove', handlePointerMove);
   window.addEventListener('pointerdown', handleWindowPointerDown);
   window.addEventListener('keydown', handleWindowKeyDown);
   container.cleanup = () => {

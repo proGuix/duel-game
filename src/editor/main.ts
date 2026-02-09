@@ -992,7 +992,57 @@ function makeVariantDropdown(
     baseH: 0,
     anchor: null as { x: number; y: number; width: number; height: number } | null
   };
+  const tooltipMoveDuration = 220;
+  const tooltipMove = {
+    active: false,
+    start: 0,
+    duration: tooltipMoveDuration,
+    fromX: 0,
+    fromY: 0,
+    toX: 0,
+    toY: 0,
+    raf: 0
+  };
+  const runTooltipMove = () => {
+    if (!tooltipMove.active) {
+      tooltipMove.raf = 0;
+      return;
+    }
+    const now = performance.now();
+    const raw = Math.min(1, (now - tooltipMove.start) / tooltipMove.duration);
+    const eased = raw * raw * (3 - 2 * raw);
+    tooltipState.currentX = tooltipMove.fromX + (tooltipMove.toX - tooltipMove.fromX) * eased;
+    tooltipState.currentY = tooltipMove.fromY + (tooltipMove.toY - tooltipMove.fromY) * eased;
+    drawTooltipAt();
+    if (raw < 1) {
+      tooltipMove.raf = requestAnimationFrame(runTooltipMove);
+      return;
+    }
+    tooltipMove.active = false;
+    tooltipMove.raf = 0;
+    tooltipState.currentX = tooltipMove.toX;
+    tooltipState.currentY = tooltipMove.toY;
+    drawTooltipAt();
+  };
+  const startTooltipMove = (fromX: number, fromY: number, toX: number, toY: number) => {
+    if (tooltipMove.raf) {
+      cancelAnimationFrame(tooltipMove.raf);
+      tooltipMove.raf = 0;
+    }
+    tooltipMove.active = true;
+    tooltipMove.start = performance.now();
+    tooltipMove.fromX = fromX;
+    tooltipMove.fromY = fromY;
+    tooltipMove.toX = toX;
+    tooltipMove.toY = toY;
+    tooltipMove.raf = requestAnimationFrame(runTooltipMove);
+  };
     const hideTooltip = () => {
+      if (tooltipMove.raf) {
+        cancelAnimationFrame(tooltipMove.raf);
+        tooltipMove.raf = 0;
+      }
+      tooltipMove.active = false;
       tooltipState.visible = false;
       tooltipState.anchor = null;
       tooltip.visible = false;
@@ -1209,16 +1259,25 @@ function makeVariantDropdown(
       }
     }
 
+    const wasVisible = tooltipState.visible;
+    const prevX = tooltipState.currentX;
+    const prevY = tooltipState.currentY;
     tooltipState.anchor = anchor;
     tooltipState.baseW = baseW;
     tooltipState.baseH = baseH;
     tooltipState.rectX = chosen.rectX;
     tooltipState.rectY = chosen.rectY;
     tooltipState.side = chosen.side;
-    tooltipState.currentX = chosen.x;
-    tooltipState.currentY = chosen.y;
     tooltipState.visible = true;
-    drawTooltipAt();
+    const dx = Math.abs(prevX - chosen.x);
+    const dy = Math.abs(prevY - chosen.y);
+    if (wasVisible && (dx > 0.5 || dy > 0.5)) {
+      startTooltipMove(prevX, prevY, chosen.x, chosen.y);
+    } else {
+      tooltipState.currentX = chosen.x;
+      tooltipState.currentY = chosen.y;
+      drawTooltipAt();
+    }
   };
 
   type TooltipTarget = { kind: 'none' } | { kind: 'field' } | { kind: 'item'; index: number };
@@ -1331,7 +1390,7 @@ function makeVariantDropdown(
       return;
     }
     if (!tooltipIntent.ready()) {
-      hideTooltip();
+      // hideTooltip();
       return;
     }
     const { target } = tooltipIntent;

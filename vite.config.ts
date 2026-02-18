@@ -84,7 +84,8 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: path.resolve(projectRoot, 'index.html'),
-        editor: path.resolve(projectRoot, 'editor.html')
+        editor: path.resolve(projectRoot, 'editor.html'),
+        geometry: path.resolve(projectRoot, 'geometry.html')
       }
     }
   },

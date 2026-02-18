@@ -190,13 +190,6 @@ function renderUI() {
   const w = Math.round(app.renderer.width);
   const h = Math.round(app.renderer.height);
 
-  // Toolbar
-  const toolbar = new Graphics();
-  toolbar.roundRect(padding, padding, w - padding * 2, toolbarHeight, 12);
-  toolbar.fill({ color: 0x0c1019, alpha: 0.9 });
-  toolbar.stroke({ width: 1, color: 0x1c2637, alpha: 0.7 });
-  uiLayer.addChild(toolbar);
-
   const yBtn = Math.round(padding + 10);
   const controlBtnWidth = 100;
   const controlBtnGap = 10;

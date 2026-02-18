@@ -707,8 +707,8 @@ function renderGeometry() {
         };
   
         const samples = 1000;
-        const ellipses: Array<{ A: number; B: number; C: number }> = [];
-        const eps = 1e-4;
+        const ellipses: Array<{ A: number; B: number; C: number; residual: number }> = [];
+        const eps = 1e-6;
         for (let i = 1; i < samples; i += 1) {
           const tA = i / samples;
           const p1 = quadPoint(c1Start, c1Control, c1End, tA);
@@ -720,20 +720,25 @@ function renderGeometry() {
             const tg2 = quadTangent(c2Start, c2Control, c2End, tB);
             const p2Local = { x: p2.x - cmPoint.x, y: p2.y - cmPoint.y };
             const ell = ellipseFromTangents(p1Local, tg1, p2Local, tg2);
-            if (!ell || ell.residual > 1e-3) continue;
+            if (!ell || ell.residual > 1e-4) continue;
             const dup = ellipses.some(
               (e) => Math.abs(e.A - ell.A) < eps && Math.abs(e.B - ell.B) < eps && Math.abs(e.C - ell.C) < eps
             );
             if (dup) continue;
-            ellipses.push({ A: ell.A, B: ell.B, C: ell.C });
+            ellipses.push({ A: ell.A, B: ell.B, C: ell.C, residual: ell.residual });
           }
         }
+        const maxEllipses = 100;
+        const limited = ellipses
+          .slice()
+          .sort((a, b) => a.residual - b.residual)
+          .slice(0, maxEllipses);
         let bestRound = -Infinity;
         let bestArea = -Infinity;
         const best: Array<{ A: number; B: number; C: number }> = [];
         const roundEps = 1e-4;
         const areaEps = 1e-2;
-        ellipses.forEach((e) => {
+        limited.forEach((e) => {
           const axes = ellipseAxes(e.A, e.B, e.C);
           if (!axes) return;
           const { a, b } = axes;
@@ -754,7 +759,7 @@ function renderGeometry() {
             }
           }
         });
-        ellipses.forEach((e) => drawRotatedEllipse(e.A, e.B, e.C, 0.15));
+        limited.forEach((e) => drawRotatedEllipse(e.A, e.B, e.C, 0.15));
         best.forEach((e) => drawRotatedEllipse(e.A, e.B, e.C, 0.5, 2.5, 0xff9f1a));
       }
   

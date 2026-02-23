@@ -53,40 +53,13 @@ let demoRedProjLabelB: BitmapText | null = null;
 let demoGreenMidLabel: BitmapText | null = null;
 let demoCurveLabel1: BitmapText | null = null;
 let demoCurveLabel2: BitmapText | null = null;
+let demoCurveLabelM: BitmapText | null = null;
+let demoSearchSpanLabel: BitmapText | null = null;
 let demoRectState = {
   initialized: false,
   a: { x: 0, y: 0 },
   b: { x: 0, y: 0 }
 };
-let demoEllipseCenterT = 0;
-let demoEllipsePanel: Container | null = null;
-let demoEllipsePanelBg: Graphics | null = null;
-let demoEllipsePanelDragOffset = { x: 0, y: 0 };
-let demoEllipsePanelDragMoveHandler: ((e: PointerEvent) => void) | null = null;
-let demoEllipsePanelDragEndHandler: ((e: PointerEvent) => void) | null = null;
-let demoEllipseSliderTrack: Graphics | null = null;
-let demoEllipseSliderHandle: Graphics | null = null;
-let demoEllipseSliderLabel: BitmapText | null = null;
-let demoEllipseFocusTrack: Graphics | null = null;
-let demoEllipseFocusHandle: Graphics | null = null;
-let demoEllipseFocusLabel: BitmapText | null = null;
-let demoEllipseAxisTrack: Graphics | null = null;
-let demoEllipseAxisHandle: Graphics | null = null;
-let demoEllipseAxisLabel: BitmapText | null = null;
-let demoEllipseAngleTrack: Graphics | null = null;
-let demoEllipseAngleHandle: Graphics | null = null;
-let demoEllipseAngleLabel: BitmapText | null = null;
-let demoEllipseDragMoveHandler: ((e: PointerEvent) => void) | null = null;
-let demoEllipseDragEndHandler: ((e: PointerEvent) => void) | null = null;
-let demoEllipseAngleDragMoveHandler: ((e: PointerEvent) => void) | null = null;
-let demoEllipseAngleDragEndHandler: ((e: PointerEvent) => void) | null = null;
-let demoEllipseAngleT = 0.5;
-let demoEllipseFocusT = 0.3;
-let demoEllipseAxisT = 0.5;
-let demoEllipseFocusDragMoveHandler: ((e: PointerEvent) => void) | null = null;
-let demoEllipseFocusDragEndHandler: ((e: PointerEvent) => void) | null = null;
-let demoEllipseAxisDragMoveHandler: ((e: PointerEvent) => void) | null = null;
-let demoEllipseAxisDragEndHandler: ((e: PointerEvent) => void) | null = null;
 let demoEllipseSolveT = 0.5;
 let demoEllipseSolvePanel: Container | null = null;
 let demoEllipseSolvePanelBg: Graphics | null = null;
@@ -287,10 +260,22 @@ function renderGeometry() {
         demoCurveLabel2 = createBitmapTextNode('C2', { fill: s2Color, fontSize: 12, fontWeight: '600' });
         demoCurveLabel2.zIndex = 9998;
       }
+      if (!demoCurveLabelM) {
+        demoCurveLabelM = createBitmapTextNode('CM', { fill: 0x7dd3fc, fontSize: 12, fontWeight: '600' });
+        demoCurveLabelM.zIndex = 9998;
+      }
+      if (!demoSearchSpanLabel) {
+        demoSearchSpanLabel = createBitmapTextNode('span', { fill: 0x9ad9ff, fontSize: 11, fontWeight: '600' });
+        demoSearchSpanLabel.zIndex = 9998;
+      }
       if (demoCurveLabel1.parent === null) uiLayer.addChild(demoCurveLabel1);
       if (demoCurveLabel2.parent === null) uiLayer.addChild(demoCurveLabel2);
+      if (demoCurveLabelM.parent === null) uiLayer.addChild(demoCurveLabelM);
+      if (demoSearchSpanLabel.parent === null) uiLayer.addChild(demoSearchSpanLabel);
       demoCurveLabel1.visible = false;
       demoCurveLabel2.visible = false;
+      demoCurveLabelM.visible = false;
+      demoSearchSpanLabel.visible = false;
   
       const rectAX0 = demoRectState.a.x;
       const rectAY0 = demoRectState.a.y;
@@ -395,11 +380,6 @@ function renderGeometry() {
   
       const ptA = rectACenter;
       const ptB = rectBCenter;
-      const centerT = Math.max(0, Math.min(1, demoEllipseCenterT));
-      let ellipseCenter = {
-        x: ptA.x + (ptB.x - ptA.x) * centerT,
-        y: ptA.y + (ptB.y - ptA.y) * centerT
-      };
       hullGfx.circle(ptA.x, ptA.y, 4);
       hullGfx.circle(ptB.x, ptB.y, 4);
       hullGfx.fill({ color: 0xffd86b, alpha: 0.9 });
@@ -408,9 +388,6 @@ function renderGeometry() {
       demoGreenCornerLabelA.visible = true;
       demoGreenCornerLabelB.visible = true;
   
-      hullGfx.moveTo(ptA.x, ptA.y);
-      hullGfx.lineTo(ptB.x, ptB.y);
-      hullGfx.stroke({ width: 1, color: 0xffd86b, alpha: 0.85 });
       const midX = (ptA.x + ptB.x) / 2;
       const midY = (ptA.y + ptB.y) / 2;
       const abMid = { x: midX, y: midY };
@@ -600,10 +577,16 @@ function renderGeometry() {
           else hullGfx.lineTo(mid.x, mid.y);
         }
         hullGfx.stroke({ width: 2, color: 0x7dd3fc, alpha: 0.85 });
-        const c1At = quadPoint(c1Start, c1Control, c1End, centerT);
-        const c2At = quadPoint(c2Start, c2Control, c2End, centerT);
-        ellipseCenter = { x: (c1At.x + c2At.x) / 2, y: (c1At.y + c2At.y) / 2 };
-  
+        const cmT = 0.5;
+        const cmP1 = quadPoint(c1Start, c1Control, c1End, cmT);
+        const cmP2 = quadPoint(c2Start, c2Control, c2End, cmT);
+        const cmMid = { x: (cmP1.x + cmP2.x) / 2, y: (cmP1.y + cmP2.y) / 2 };
+        if (demoCurveLabelM) {
+          demoCurveLabelM.position.set(cmMid.x + 6, cmMid.y + 16);
+          demoCurveLabelM.tint = 0x7dd3fc;
+          demoCurveLabelM.visible = true;
+        }
+
         const solveT = Math.max(0, Math.min(1, demoEllipseSolveT));
         const s1 = quadPoint(c1Start, c1Control, c1End, solveT);
         const s2 = quadPoint(c2Start, c2Control, c2End, solveT);
@@ -706,27 +689,112 @@ function renderGeometry() {
           hullGfx.stroke({ width, color, alpha });
         };
   
-        const samples = 1000;
+        const samples = 600;
+        const centerWindowSpan = 0.12;
+        const searchSpan = 0.08;
+        const localSteps = 11;
+        const debugSolveT = Math.max(0.001, Math.min(0.999, demoEllipseSolveT));
+        const windowMin = Math.max(0.001, Math.min(0.999, debugSolveT - centerWindowSpan));
+        const windowMax = Math.max(0.001, Math.min(0.999, debugSolveT + centerWindowSpan));
+        const debugC1Color = 0x7df7ff;
+        const debugC2Color = 0xff4dff;
+        const debugBandColor = 0xff9bff;
+        const debugC1Points: Array<{ x: number; y: number }> = [];
+        const debugC2Points: Array<{ x: number; y: number }> = [];
+        const debugBandSteps = 36;
+        for (let k = 0; k < debugBandSteps; k += 1) {
+          const t = windowMin + (k / (debugBandSteps - 1)) * (windowMax - windowMin);
+          debugC1Points.push(quadPoint(c1Start, c1Control, c1End, t));
+          debugC2Points.push(quadPoint(c2Start, c2Control, c2End, t));
+        }
+        if (debugC1Points.length >= 2 && debugC2Points.length >= 2) {
+          const c1Min = quadPoint(c1Start, c1Control, c1End, windowMin);
+          const c1Max = quadPoint(c1Start, c1Control, c1End, windowMax);
+          const c2Min = quadPoint(c2Start, c2Control, c2End, windowMin);
+          const c2Max = quadPoint(c2Start, c2Control, c2End, windowMax);
+          hullGfx.moveTo(debugC1Points[0].x, debugC1Points[0].y);
+          for (let i = 1; i < debugC1Points.length; i += 1) {
+            hullGfx.lineTo(debugC1Points[i].x, debugC1Points[i].y);
+          }
+          for (let i = debugC2Points.length - 1; i >= 0; i -= 1) {
+            hullGfx.lineTo(debugC2Points[i].x, debugC2Points[i].y);
+          }
+          hullGfx.closePath();
+          hullGfx.fill({ color: debugBandColor, alpha: 0.14 });
+          hullGfx.stroke({ width: 1.5, color: debugBandColor, alpha: 0.35 });
+
+          hullGfx.moveTo(c1Min.x, c1Min.y);
+          hullGfx.lineTo(c1Max.x, c1Max.y);
+          hullGfx.stroke({ width: 3, color: debugC1Color, alpha: 0.95 });
+          hullGfx.moveTo(c2Min.x, c2Min.y);
+          hullGfx.lineTo(c2Max.x, c2Max.y);
+          hullGfx.stroke({ width: 3, color: debugC2Color, alpha: 0.95 });
+
+          for (let i = 0; i < localSteps; i += 1) {
+            const t = windowMin + (i / (localSteps - 1)) * (windowMax - windowMin);
+            const p1 = quadPoint(c1Start, c1Control, c1End, t);
+            const p2 = quadPoint(c2Start, c2Control, c2End, t);
+            hullGfx.moveTo(p1.x, p1.y);
+            hullGfx.lineTo(p2.x, p2.y);
+          }
+          hullGfx.stroke({ width: 1, color: debugBandColor, alpha: 0.28 });
+
+          hullGfx.circle(c1Min.x, c1Min.y, 4);
+          hullGfx.circle(c1Max.x, c1Max.y, 4);
+          hullGfx.fill({ color: debugC1Color, alpha: 0.95 });
+          hullGfx.circle(c2Min.x, c2Min.y, 4);
+          hullGfx.circle(c2Max.x, c2Max.y, 4);
+          hullGfx.fill({ color: debugC2Color, alpha: 0.95 });
+
+          hullGfx.moveTo(c1Min.x, c1Min.y);
+          hullGfx.lineTo(c2Min.x, c2Min.y);
+          hullGfx.moveTo(c1Max.x, c1Max.y);
+          hullGfx.lineTo(c2Max.x, c2Max.y);
+          hullGfx.stroke({ width: 2, color: debugBandColor, alpha: 0.85 });
+          const c1Center = quadPoint(c1Start, c1Control, c1End, debugSolveT);
+          const c2Center = quadPoint(c2Start, c2Control, c2End, debugSolveT);
+          hullGfx.circle(c1Center.x, c1Center.y, 3);
+          hullGfx.fill({ color: debugC1Color, alpha: 0.9 });
+          hullGfx.circle(c2Center.x, c2Center.y, 3);
+          hullGfx.fill({ color: debugC2Color, alpha: 0.9 });
+          hullGfx.moveTo(c1Center.x, c1Center.y);
+          hullGfx.lineTo(c2Center.x, c2Center.y);
+          hullGfx.stroke({ width: 2, color: debugBandColor, alpha: 0.9 });
+          if (demoSearchSpanLabel) {
+            demoSearchSpanLabel.visible = true;
+            demoSearchSpanLabel.text = `window@tC ±${centerWindowSpan.toFixed(2)} | local ±${searchSpan.toFixed(2)} | steps ${localSteps}`;
+            demoSearchSpanLabel.position.set(cmPoint.x + 12, cmPoint.y - 26);
+            demoSearchSpanLabel.tint = 0xff93ff;
+          }
+        }
         const ellipses: Array<{ A: number; B: number; C: number; residual: number }> = [];
         const eps = 1e-6;
-        for (let i = 1; i < samples; i += 1) {
-          const tA = i / samples;
+        const spanLen = Math.max(1e-6, windowMax - windowMin);
+        const centeredSamples = Math.max(12, Math.floor(samples * spanLen));
+        for (let i = 0; i <= centeredSamples; i += 1) {
+          const tA = windowMin + (i / centeredSamples) * (windowMax - windowMin);
           const p1 = quadPoint(c1Start, c1Control, c1End, tA);
           const tg1 = quadTangent(c1Start, c1Control, c1End, tA);
           const p1Local = { x: p1.x - cmPoint.x, y: p1.y - cmPoint.y };
-          for (let j = 1; j < samples; j += 1) {
-            const tB = j / samples;
+          let best: { A: number; B: number; C: number; residual: number } | null = null;
+          for (let k = 0; k < localSteps; k += 1) {
+            const offset = (k / (localSteps - 1) - 0.5) * 2 * searchSpan;
+            const tB = Math.min(windowMax, Math.max(windowMin, tA + offset));
             const p2 = quadPoint(c2Start, c2Control, c2End, tB);
             const tg2 = quadTangent(c2Start, c2Control, c2End, tB);
             const p2Local = { x: p2.x - cmPoint.x, y: p2.y - cmPoint.y };
             const ell = ellipseFromTangents(p1Local, tg1, p2Local, tg2);
-            if (!ell || ell.residual > 1e-4) continue;
-            const dup = ellipses.some(
-              (e) => Math.abs(e.A - ell.A) < eps && Math.abs(e.B - ell.B) < eps && Math.abs(e.C - ell.C) < eps
-            );
-            if (dup) continue;
-            ellipses.push({ A: ell.A, B: ell.B, C: ell.C, residual: ell.residual });
+            if (!ell) continue;
+            if (!best || ell.residual < best.residual) {
+              best = { A: ell.A, B: ell.B, C: ell.C, residual: ell.residual };
+            }
           }
+          if (!best || best.residual > 1e-4) continue;
+          const dup = ellipses.some(
+            (e) => Math.abs(e.A - best.A) < eps && Math.abs(e.B - best.B) < eps && Math.abs(e.C - best.C) < eps
+          );
+          if (dup) continue;
+          ellipses.push(best);
         }
         const maxEllipses = 100;
         const limited = ellipses
@@ -763,54 +831,6 @@ function renderGeometry() {
         best.forEach((e) => drawRotatedEllipse(e.A, e.B, e.C, 0.5, 2.5, 0xff9f1a));
       }
   
-      const ellipseAngle = demoEllipseAngleT * Math.PI * 2;
-      const cosR = Math.cos(ellipseAngle);
-      const sinR = Math.sin(ellipseAngle);
-      const baseMajor = Math.max(120, Math.min(260, Math.hypot(ptB.x - ptA.x, ptB.y - ptA.y)));
-      const a = baseMajor * (0.05 + demoEllipseAxisT * 0.95);
-      const maxFocus = baseMajor * 0.45;
-      const desiredC = maxFocus * demoEllipseFocusT;
-      const c = Math.min(desiredC, Math.max(1, a - 4));
-      const b = Math.sqrt(Math.max(1, a * a - c * c));
-      const steps = 90;
-      for (let i = 0; i <= steps; i += 1) {
-        const t = (i / steps) * Math.PI * 2;
-        const x = a * Math.cos(t);
-        const y = b * Math.sin(t);
-        const rx = x * cosR - y * sinR + ellipseCenter.x;
-        const ry = x * sinR + y * cosR + ellipseCenter.y;
-        if (i === 0) hullGfx.moveTo(rx, ry);
-        else hullGfx.lineTo(rx, ry);
-      }
-      hullGfx.stroke({ width: 1, color: 0x9ad9ff, alpha: 0.6 });
-      hullGfx.circle(ellipseCenter.x, ellipseCenter.y, 3);
-      hullGfx.fill({ color: 0x9ad9ff, alpha: 0.9 });
-      const fx = cosR * c;
-      const fy = sinR * c;
-      hullGfx.circle(ellipseCenter.x + fx, ellipseCenter.y + fy, 3);
-      hullGfx.circle(ellipseCenter.x - fx, ellipseCenter.y - fy, 3);
-      hullGfx.fill({ color: 0xffd86b, alpha: 0.9 });
-  
-      if (demoEllipseSliderTrack && demoEllipseSliderHandle) {
-        const sliderX = demoEllipseSliderTrack.position.x;
-        const sliderW = demoEllipseSliderTrack.width;
-        demoEllipseSliderHandle.position.set(sliderX + sliderW * centerT, demoEllipseSliderTrack.position.y + 3);
-      }
-      if (demoEllipseFocusTrack && demoEllipseFocusHandle) {
-        const sliderX = demoEllipseFocusTrack.position.x;
-        const sliderW = demoEllipseFocusTrack.width;
-        demoEllipseFocusHandle.position.set(sliderX + sliderW * demoEllipseFocusT, demoEllipseFocusTrack.position.y + 3);
-      }
-      if (demoEllipseAxisTrack && demoEllipseAxisHandle) {
-        const sliderX = demoEllipseAxisTrack.position.x;
-        const sliderW = demoEllipseAxisTrack.width;
-        demoEllipseAxisHandle.position.set(sliderX + sliderW * demoEllipseAxisT, demoEllipseAxisTrack.position.y + 3);
-      }
-      if (demoEllipseAngleTrack && demoEllipseAngleHandle) {
-        const sliderX = demoEllipseAngleTrack.position.x;
-        const sliderW = demoEllipseAngleTrack.width;
-        demoEllipseAngleHandle.position.set(sliderX + sliderW * demoEllipseAngleT, demoEllipseAngleTrack.position.y + 3);
-      }
       if (demoEllipseSolveTrack && demoEllipseSolveHandle) {
         const sliderX = demoEllipseSolveTrack.position.x;
         const sliderW = demoEllipseSolveTrack.width;
@@ -901,313 +921,12 @@ function renderGeometry() {
     const panelPad = 12;
     const sliderX = panelPad;
     const sliderY = panelPad + 18;
-    const sliderStepY = 26;
-    const panelW = sliderW + panelPad * 2;
-    const panelH = sliderY + sliderStepY * 3 + sliderH + panelPad;
-    if (!demoEllipsePanel) {
-      demoEllipsePanel = new Container();
-      demoEllipsePanel.position.set(padding + 16, padding + toolbarHeight + 8);
-      demoEllipsePanel.zIndex = 9992;
-      uiLayer.addChild(demoEllipsePanel);
-    }
-    if (!demoEllipsePanelBg && demoEllipsePanel) {
-      demoEllipsePanelBg = new Graphics();
-      demoEllipsePanelBg.roundRect(0, 0, panelW, panelH, 10);
-      demoEllipsePanelBg.fill({ color: 0x0c1019, alpha: 0.9 });
-      demoEllipsePanelBg.stroke({ width: 1, color: 0x1c2637, alpha: 0.7 });
-      demoEllipsePanelBg.eventMode = 'static';
-      demoEllipsePanelBg.cursor = 'grab';
-      demoEllipsePanelBg.on('pointerdown', (evt) => {
-        evt.stopPropagation();
-        const p = evt.global ?? { x: evt.clientX ?? 0, y: evt.clientY ?? 0 };
-        const start = toCanvasPoint(p.x, p.y);
-        demoEllipsePanelDragOffset = {
-          x: start.x - (demoEllipsePanel?.position.x ?? 0),
-          y: start.y - (demoEllipsePanel?.position.y ?? 0)
-        };
-        if (!demoEllipsePanelDragMoveHandler) {
-          demoEllipsePanelDragMoveHandler = (e: PointerEvent) => {
-            if (!demoEllipsePanel) return;
-            const next = toCanvasPoint(e.clientX, e.clientY);
-            demoEllipsePanel.position.set(next.x - demoEllipsePanelDragOffset.x, next.y - demoEllipsePanelDragOffset.y);
-          };
-        }
-        if (!demoEllipsePanelDragEndHandler) {
-          demoEllipsePanelDragEndHandler = () => {
-            if (demoEllipsePanelDragMoveHandler) {
-              window.removeEventListener('pointermove', demoEllipsePanelDragMoveHandler);
-            }
-            if (demoEllipsePanelDragEndHandler) {
-              window.removeEventListener('pointerup', demoEllipsePanelDragEndHandler);
-            }
-          };
-        }
-        window.addEventListener('pointermove', demoEllipsePanelDragMoveHandler);
-        window.addEventListener('pointerup', demoEllipsePanelDragEndHandler);
-      });
-      demoEllipsePanel.addChild(demoEllipsePanelBg);
-    }
-    if (!demoEllipseSliderTrack) {
-      demoEllipseSliderTrack = new Graphics();
-      demoEllipseSliderTrack.roundRect(0, 0, sliderW, sliderH, sliderH / 2);
-      demoEllipseSliderTrack.fill({ color: 0x202a3b, alpha: 0.95 });
-      demoEllipseSliderTrack.stroke({ width: 1, color: 0x3a4a66, alpha: 0.7 });
-      demoEllipseSliderTrack.position.set(sliderX, sliderY);
-      demoEllipseSliderTrack.eventMode = 'static';
-      demoEllipseSliderTrack.cursor = 'pointer';
-      demoEllipsePanel?.addChild(demoEllipseSliderTrack);
-    }
-    if (!demoEllipseSliderHandle) {
-      demoEllipseSliderHandle = new Graphics();
-      demoEllipseSliderHandle.circle(0, 0, 7);
-      demoEllipseSliderHandle.fill({ color: 0x9ad9ff, alpha: 0.95 });
-      demoEllipseSliderHandle.stroke({ width: 1, color: 0xffffff, alpha: 0.35 });
-      demoEllipseSliderHandle.eventMode = 'static';
-      demoEllipseSliderHandle.cursor = 'pointer';
-      demoEllipsePanel?.addChild(demoEllipseSliderHandle);
-    }
-    if (!demoEllipseSliderLabel) {
-      demoEllipseSliderLabel = createBitmapTextNode('Ellipse center', {
-        fill: 0xdfe8ff,
-        fontSize: 12,
-        fontWeight: '600'
-      });
-      demoEllipseSliderLabel.position.set(sliderX, sliderY - 18);
-      demoEllipsePanel?.addChild(demoEllipseSliderLabel);
-    }
-  
-    const setEllipseTFromX = (clientX: number, clientY: number) => {
-      const p = toCanvasPoint(clientX, clientY);
-      const panelX = demoEllipsePanel?.position.x ?? 0;
-      const t = (p.x - panelX - sliderX) / sliderW;
-      demoEllipseCenterT = Math.max(0, Math.min(1, t));
-      drawHull();
-    };
-  
-    const startEllipseDrag = (evt: any) => {
-      evt.stopPropagation();
-      const p = evt.global ?? { x: evt.clientX ?? 0, y: evt.clientY ?? 0 };
-      setEllipseTFromX(p.x, p.y);
-      if (!demoEllipseDragMoveHandler) {
-        demoEllipseDragMoveHandler = (e: PointerEvent) => setEllipseTFromX(e.clientX, e.clientY);
-      }
-      if (!demoEllipseDragEndHandler) {
-        demoEllipseDragEndHandler = () => {
-          if (demoEllipseDragMoveHandler) {
-            window.removeEventListener('pointermove', demoEllipseDragMoveHandler);
-          }
-          if (demoEllipseDragEndHandler) {
-            window.removeEventListener('pointerup', demoEllipseDragEndHandler);
-          }
-        };
-      }
-      window.addEventListener('pointermove', demoEllipseDragMoveHandler);
-      window.addEventListener('pointerup', demoEllipseDragEndHandler);
-    };
-  
-    demoEllipseSliderTrack.on('pointerdown', (evt) => startEllipseDrag(evt));
-    demoEllipseSliderHandle.on('pointerdown', (evt) => startEllipseDrag(evt));
-  
-    const focusSliderX = sliderX;
-    const focusSliderY = sliderY + sliderStepY;
-    const focusSliderW = sliderW;
-    const focusSliderH = sliderH;
-    if (!demoEllipseFocusTrack) {
-      demoEllipseFocusTrack = new Graphics();
-      demoEllipseFocusTrack.roundRect(0, 0, focusSliderW, focusSliderH, focusSliderH / 2);
-      demoEllipseFocusTrack.fill({ color: 0x202a3b, alpha: 0.95 });
-      demoEllipseFocusTrack.stroke({ width: 1, color: 0x3a4a66, alpha: 0.7 });
-      demoEllipseFocusTrack.position.set(focusSliderX, focusSliderY);
-      demoEllipseFocusTrack.eventMode = 'static';
-      demoEllipseFocusTrack.cursor = 'pointer';
-      demoEllipsePanel?.addChild(demoEllipseFocusTrack);
-    }
-    if (!demoEllipseFocusHandle) {
-      demoEllipseFocusHandle = new Graphics();
-      demoEllipseFocusHandle.circle(0, 0, 7);
-      demoEllipseFocusHandle.fill({ color: 0x9ad9ff, alpha: 0.95 });
-      demoEllipseFocusHandle.stroke({ width: 1, color: 0xffffff, alpha: 0.35 });
-      demoEllipseFocusHandle.eventMode = 'static';
-      demoEllipseFocusHandle.cursor = 'pointer';
-      demoEllipsePanel?.addChild(demoEllipseFocusHandle);
-    }
-    if (!demoEllipseFocusLabel) {
-      demoEllipseFocusLabel = createBitmapTextNode('Ellipse focus', {
-        fill: 0xdfe8ff,
-        fontSize: 12,
-        fontWeight: '600'
-      });
-      demoEllipseFocusLabel.position.set(focusSliderX, focusSliderY - 18);
-      demoEllipsePanel?.addChild(demoEllipseFocusLabel);
-    }
-  
-    const setEllipseFocusFromX = (clientX: number, clientY: number) => {
-      const p = toCanvasPoint(clientX, clientY);
-      const panelX = demoEllipsePanel?.position.x ?? 0;
-      const t = (p.x - panelX - focusSliderX) / focusSliderW;
-      demoEllipseFocusT = Math.max(0, Math.min(1, t));
-      drawHull();
-    };
-  
-    const startEllipseFocusDrag = (evt: any) => {
-      evt.stopPropagation();
-      const p = evt.global ?? { x: evt.clientX ?? 0, y: evt.clientY ?? 0 };
-      setEllipseFocusFromX(p.x, p.y);
-      if (!demoEllipseFocusDragMoveHandler) {
-        demoEllipseFocusDragMoveHandler = (e: PointerEvent) => setEllipseFocusFromX(e.clientX, e.clientY);
-      }
-      if (!demoEllipseFocusDragEndHandler) {
-        demoEllipseFocusDragEndHandler = () => {
-          if (demoEllipseFocusDragMoveHandler) {
-            window.removeEventListener('pointermove', demoEllipseFocusDragMoveHandler);
-          }
-          if (demoEllipseFocusDragEndHandler) {
-            window.removeEventListener('pointerup', demoEllipseFocusDragEndHandler);
-          }
-        };
-      }
-      window.addEventListener('pointermove', demoEllipseFocusDragMoveHandler);
-      window.addEventListener('pointerup', demoEllipseFocusDragEndHandler);
-    };
-  
-    demoEllipseFocusTrack.on('pointerdown', (evt) => startEllipseFocusDrag(evt));
-    demoEllipseFocusHandle.on('pointerdown', (evt) => startEllipseFocusDrag(evt));
-  
-    const axisSliderX = sliderX;
-    const axisSliderY = sliderY + sliderStepY * 2;
-    const axisSliderW = sliderW;
-    const axisSliderH = sliderH;
-    if (!demoEllipseAxisTrack) {
-      demoEllipseAxisTrack = new Graphics();
-      demoEllipseAxisTrack.roundRect(0, 0, axisSliderW, axisSliderH, axisSliderH / 2);
-      demoEllipseAxisTrack.fill({ color: 0x202a3b, alpha: 0.95 });
-      demoEllipseAxisTrack.stroke({ width: 1, color: 0x3a4a66, alpha: 0.7 });
-      demoEllipseAxisTrack.position.set(axisSliderX, axisSliderY);
-      demoEllipseAxisTrack.eventMode = 'static';
-      demoEllipseAxisTrack.cursor = 'pointer';
-      demoEllipsePanel?.addChild(demoEllipseAxisTrack);
-    }
-    if (!demoEllipseAxisHandle) {
-      demoEllipseAxisHandle = new Graphics();
-      demoEllipseAxisHandle.circle(0, 0, 7);
-      demoEllipseAxisHandle.fill({ color: 0x9ad9ff, alpha: 0.95 });
-      demoEllipseAxisHandle.stroke({ width: 1, color: 0xffffff, alpha: 0.35 });
-      demoEllipseAxisHandle.eventMode = 'static';
-      demoEllipseAxisHandle.cursor = 'pointer';
-      demoEllipsePanel?.addChild(demoEllipseAxisHandle);
-    }
-    if (!demoEllipseAxisLabel) {
-      demoEllipseAxisLabel = createBitmapTextNode('Ellipse axis', {
-        fill: 0xdfe8ff,
-        fontSize: 12,
-        fontWeight: '600'
-      });
-      demoEllipseAxisLabel.position.set(axisSliderX, axisSliderY - 18);
-      demoEllipsePanel?.addChild(demoEllipseAxisLabel);
-    }
-  
-    const setEllipseAxisFromX = (clientX: number, clientY: number) => {
-      const p = toCanvasPoint(clientX, clientY);
-      const panelX = demoEllipsePanel?.position.x ?? 0;
-      const t = (p.x - panelX - axisSliderX) / axisSliderW;
-      demoEllipseAxisT = Math.max(0, Math.min(1, t));
-      drawHull();
-    };
-  
-    const startEllipseAxisDrag = (evt: any) => {
-      evt.stopPropagation();
-      const p = evt.global ?? { x: evt.clientX ?? 0, y: evt.clientY ?? 0 };
-      setEllipseAxisFromX(p.x, p.y);
-      if (!demoEllipseAxisDragMoveHandler) {
-        demoEllipseAxisDragMoveHandler = (e: PointerEvent) => setEllipseAxisFromX(e.clientX, e.clientY);
-      }
-      if (!demoEllipseAxisDragEndHandler) {
-        demoEllipseAxisDragEndHandler = () => {
-          if (demoEllipseAxisDragMoveHandler) {
-            window.removeEventListener('pointermove', demoEllipseAxisDragMoveHandler);
-          }
-          if (demoEllipseAxisDragEndHandler) {
-            window.removeEventListener('pointerup', demoEllipseAxisDragEndHandler);
-          }
-        };
-      }
-      window.addEventListener('pointermove', demoEllipseAxisDragMoveHandler);
-      window.addEventListener('pointerup', demoEllipseAxisDragEndHandler);
-    };
-  
-    demoEllipseAxisTrack.on('pointerdown', (evt) => startEllipseAxisDrag(evt));
-    demoEllipseAxisHandle.on('pointerdown', (evt) => startEllipseAxisDrag(evt));
-  
-    const angleSliderX = sliderX;
-    const angleSliderY = sliderY + sliderStepY * 3;
-    const angleSliderW = sliderW;
-    const angleSliderH = sliderH;
-    if (!demoEllipseAngleTrack) {
-      demoEllipseAngleTrack = new Graphics();
-      demoEllipseAngleTrack.roundRect(0, 0, angleSliderW, angleSliderH, angleSliderH / 2);
-      demoEllipseAngleTrack.fill({ color: 0x202a3b, alpha: 0.95 });
-      demoEllipseAngleTrack.stroke({ width: 1, color: 0x3a4a66, alpha: 0.7 });
-      demoEllipseAngleTrack.position.set(angleSliderX, angleSliderY);
-      demoEllipseAngleTrack.eventMode = 'static';
-      demoEllipseAngleTrack.cursor = 'pointer';
-      demoEllipsePanel?.addChild(demoEllipseAngleTrack);
-    }
-    if (!demoEllipseAngleHandle) {
-      demoEllipseAngleHandle = new Graphics();
-      demoEllipseAngleHandle.circle(0, 0, 7);
-      demoEllipseAngleHandle.fill({ color: 0x9ad9ff, alpha: 0.95 });
-      demoEllipseAngleHandle.stroke({ width: 1, color: 0xffffff, alpha: 0.35 });
-      demoEllipseAngleHandle.eventMode = 'static';
-      demoEllipseAngleHandle.cursor = 'pointer';
-      demoEllipsePanel?.addChild(demoEllipseAngleHandle);
-    }
-    if (!demoEllipseAngleLabel) {
-      demoEllipseAngleLabel = createBitmapTextNode('Ellipse angle', {
-        fill: 0xdfe8ff,
-        fontSize: 12,
-        fontWeight: '600'
-      });
-      demoEllipseAngleLabel.position.set(angleSliderX, angleSliderY - 18);
-      demoEllipsePanel?.addChild(demoEllipseAngleLabel);
-    }
-  
-    const setEllipseAngleFromX = (clientX: number, clientY: number) => {
-      const p = toCanvasPoint(clientX, clientY);
-      const panelX = demoEllipsePanel?.position.x ?? 0;
-      const t = (p.x - panelX - angleSliderX) / angleSliderW;
-      demoEllipseAngleT = Math.max(0, Math.min(1, t));
-      drawHull();
-    };
-  
-    const startEllipseAngleDrag = (evt: any) => {
-      evt.stopPropagation();
-      const p = evt.global ?? { x: evt.clientX ?? 0, y: evt.clientY ?? 0 };
-      setEllipseAngleFromX(p.x, p.y);
-      if (!demoEllipseAngleDragMoveHandler) {
-        demoEllipseAngleDragMoveHandler = (e: PointerEvent) => setEllipseAngleFromX(e.clientX, e.clientY);
-      }
-      if (!demoEllipseAngleDragEndHandler) {
-        demoEllipseAngleDragEndHandler = () => {
-          if (demoEllipseAngleDragMoveHandler) {
-            window.removeEventListener('pointermove', demoEllipseAngleDragMoveHandler);
-          }
-          if (demoEllipseAngleDragEndHandler) {
-            window.removeEventListener('pointerup', demoEllipseAngleDragEndHandler);
-          }
-        };
-      }
-      window.addEventListener('pointermove', demoEllipseAngleDragMoveHandler);
-      window.addEventListener('pointerup', demoEllipseAngleDragEndHandler);
-    };
-  
-    demoEllipseAngleTrack.on('pointerdown', (evt) => startEllipseAngleDrag(evt));
-    demoEllipseAngleHandle.on('pointerdown', (evt) => startEllipseAngleDrag(evt));
   
     const solvePanelW = sliderW + panelPad * 2;
     const solvePanelH = sliderY + sliderH + panelPad;
     if (!demoEllipseSolvePanel) {
       demoEllipseSolvePanel = new Container();
-      demoEllipseSolvePanel.position.set(padding + 16, padding + toolbarHeight + 8 + panelH + 16);
+      demoEllipseSolvePanel.position.set(padding + 16, padding + toolbarHeight + 8);
       demoEllipseSolvePanel.zIndex = 9992;
       uiLayer.addChild(demoEllipseSolvePanel);
     }

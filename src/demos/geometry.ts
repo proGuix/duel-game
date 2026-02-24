@@ -689,10 +689,10 @@ function renderGeometry() {
           hullGfx.stroke({ width, color, alpha });
         };
   
-        const samples = 600;
-        const centerWindowSpan = 0.12;
-        const searchSpan = 0.08;
-        const localSteps = 11;
+        const samples = 500;
+        const centerWindowSpan = 0.15;
+        const searchSpan = 0.5;
+        const localSteps = 200;
         const debugSolveT = Math.max(0.001, Math.min(0.999, demoEllipseSolveT));
         const windowMin = Math.max(0.001, Math.min(0.999, debugSolveT - centerWindowSpan));
         const windowMax = Math.max(0.001, Math.min(0.999, debugSolveT + centerWindowSpan));
@@ -723,22 +723,6 @@ function renderGeometry() {
           hullGfx.fill({ color: debugBandColor, alpha: 0.14 });
           hullGfx.stroke({ width: 1.5, color: debugBandColor, alpha: 0.35 });
 
-          hullGfx.moveTo(c1Min.x, c1Min.y);
-          hullGfx.lineTo(c1Max.x, c1Max.y);
-          hullGfx.stroke({ width: 3, color: debugC1Color, alpha: 0.95 });
-          hullGfx.moveTo(c2Min.x, c2Min.y);
-          hullGfx.lineTo(c2Max.x, c2Max.y);
-          hullGfx.stroke({ width: 3, color: debugC2Color, alpha: 0.95 });
-
-          for (let i = 0; i < localSteps; i += 1) {
-            const t = windowMin + (i / (localSteps - 1)) * (windowMax - windowMin);
-            const p1 = quadPoint(c1Start, c1Control, c1End, t);
-            const p2 = quadPoint(c2Start, c2Control, c2End, t);
-            hullGfx.moveTo(p1.x, p1.y);
-            hullGfx.lineTo(p2.x, p2.y);
-          }
-          hullGfx.stroke({ width: 1, color: debugBandColor, alpha: 0.28 });
-
           hullGfx.circle(c1Min.x, c1Min.y, 4);
           hullGfx.circle(c1Max.x, c1Max.y, 4);
           hullGfx.fill({ color: debugC1Color, alpha: 0.95 });
@@ -750,29 +734,20 @@ function renderGeometry() {
           hullGfx.lineTo(c2Min.x, c2Min.y);
           hullGfx.moveTo(c1Max.x, c1Max.y);
           hullGfx.lineTo(c2Max.x, c2Max.y);
-          hullGfx.stroke({ width: 2, color: debugBandColor, alpha: 0.85 });
-          const c1Center = quadPoint(c1Start, c1Control, c1End, debugSolveT);
-          const c2Center = quadPoint(c2Start, c2Control, c2End, debugSolveT);
-          hullGfx.circle(c1Center.x, c1Center.y, 3);
-          hullGfx.fill({ color: debugC1Color, alpha: 0.9 });
-          hullGfx.circle(c2Center.x, c2Center.y, 3);
-          hullGfx.fill({ color: debugC2Color, alpha: 0.9 });
-          hullGfx.moveTo(c1Center.x, c1Center.y);
-          hullGfx.lineTo(c2Center.x, c2Center.y);
-          hullGfx.stroke({ width: 2, color: debugBandColor, alpha: 0.9 });
+          hullGfx.stroke({ width: 1, color: debugBandColor, alpha: 0.85 });
           if (demoSearchSpanLabel) {
             demoSearchSpanLabel.visible = true;
-            demoSearchSpanLabel.text = `window@tC ±${centerWindowSpan.toFixed(2)} | local ±${searchSpan.toFixed(2)} | steps ${localSteps}`;
+            demoSearchSpanLabel.text = `window@tC ±${centerWindowSpan.toFixed(2)} | global ${samples} | local ±${searchSpan.toFixed(2)} | steps ${localSteps}`;
             demoSearchSpanLabel.position.set(cmPoint.x + 12, cmPoint.y - 26);
             demoSearchSpanLabel.tint = 0xff93ff;
           }
         }
         const ellipses: Array<{ A: number; B: number; C: number; residual: number }> = [];
         const eps = 1e-6;
-        const spanLen = Math.max(1e-6, windowMax - windowMin);
-        const centeredSamples = Math.max(12, Math.floor(samples * spanLen));
-        for (let i = 0; i <= centeredSamples; i += 1) {
-          const tA = windowMin + (i / centeredSamples) * (windowMax - windowMin);
+        const globalSamples = Math.max(2, samples);
+        for (let i = 0; i < globalSamples; i += 1) {
+          const ratio = i / (globalSamples - 1);
+          const tA = windowMin + ratio * (windowMax - windowMin);
           const p1 = quadPoint(c1Start, c1Control, c1End, tA);
           const tg1 = quadTangent(c1Start, c1Control, c1End, tA);
           const p1Local = { x: p1.x - cmPoint.x, y: p1.y - cmPoint.y };

@@ -39,9 +39,13 @@ const toolbarHeight = 0;
 
 let demoRectA: Graphics | null = null;
 let demoRectB: Graphics | null = null;
+let demoRectAContainer: Container | null = null;
+let demoRectBContainer: Container | null = null;
 let demoHull: Graphics | null = null;
 let demoHullLabelA: BitmapText | null = null;
 let demoHullLabelB: BitmapText | null = null;
+let demoS1MidLabel: BitmapText | null = null;
+let demoS2MidLabel: BitmapText | null = null;
 let demoGreenCornerLabelA: BitmapText | null = null;
 let demoGreenCornerLabelB: BitmapText | null = null;
 let demoGreenProjLabelA: BitmapText | null = null;
@@ -64,6 +68,14 @@ let demoSegGreenA1Label: BitmapText | null = null;
 let demoSegGreenB1Label: BitmapText | null = null;
 let demoSegRedA2Label: BitmapText | null = null;
 let demoSegRedB2Label: BitmapText | null = null;
+let demoProjS1MidOnA1Label: BitmapText | null = null;
+let demoProjS1MidOnB1Label: BitmapText | null = null;
+let demoProjS1MidOnAB1Label: BitmapText | null = null;
+let demoProjS1MidOnABaseLabel: BitmapText | null = null;
+let demoProjS2MidOnA2Label: BitmapText | null = null;
+let demoProjS2MidOnB2Label: BitmapText | null = null;
+let demoProjS2MidOnAB2Label: BitmapText | null = null;
+let demoProjS2MidOnABaseLabel: BitmapText | null = null;
 let demoRectState = {
   initialized: false,
   a: { x: 0, y: 0 },
@@ -73,11 +85,351 @@ let demoDragTarget: 'a' | 'b' | null = null;
 let demoDragOffset = { x: 0, y: 0 };
 let demoDragMoveHandler: ((e: PointerEvent) => void) | null = null;
 let demoDragEndHandler: ((e: PointerEvent) => void) | null = null;
+const LABEL_POSITION_LERP = 0.35;
+const LABEL_POSITION_EPS = 0.05;
+const labelPositionTargets = new Map<BitmapText, { x: number; y: number }>();
+let labelAnimatorStarted = false;
 
 const toCanvasPoint = (clientX: number, clientY: number) => {
   const rect = app.canvas.getBoundingClientRect();
   return { x: clientX - rect.left, y: clientY - rect.top };
 };
+
+const ensureLabelAnimator = () => {
+  if (labelAnimatorStarted || !app) return;
+  labelAnimatorStarted = true;
+  app.ticker.add(() => {
+    for (const [label, target] of labelPositionTargets) {
+      if (!label.parent || !label.visible) continue;
+      const dx = target.x - label.x;
+      const dy = target.y - label.y;
+      if (Math.abs(dx) <= LABEL_POSITION_EPS && Math.abs(dy) <= LABEL_POSITION_EPS) {
+        label.position.set(target.x, target.y);
+        continue;
+      }
+      label.position.set(label.x + dx * LABEL_POSITION_LERP, label.y + dy * LABEL_POSITION_LERP);
+    }
+  });
+};
+
+const setLabelPositionTarget = (label: BitmapText, x: number, y: number) => {
+  const hadTarget = labelPositionTargets.has(label);
+  labelPositionTargets.set(label, { x, y });
+  if (!hadTarget || !Number.isFinite(label.x) || !Number.isFinite(label.y)) {
+    label.position.set(x, y);
+  }
+};
+
+type LabelKind = 'point' | 'segment' | 'curve';
+
+type LabelPlacementRequest = {
+  id: string;
+  label: BitmapText;
+  anchor: { x: number; y: number };
+  kind: LabelKind;
+  priority: number;
+  tangent?: { x: number; y: number };
+  preferred?: 'tr' | 'br' | 'tl' | 'bl';
+};
+
+type Rect2D = { x: number; y: number; width: number; height: number };
+const SHOW_LABEL_CONVEX_RECTS = false;
+
+const labelMetrics = (label: BitmapText) => {
+  const bounds = label.getLocalBounds();
+  const width = Math.max(8, bounds.width || label.width || 8);
+  const height = Math.max(8, bounds.height || label.height || 8);
+  const bx = Number.isFinite(bounds.x) ? bounds.x : 0;
+  const by = Number.isFinite(bounds.y) ? bounds.y : 0;
+  return { width, height, bx, by };
+};
+
+const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
+const LABEL_ANCHOR_DISTANCE = 10;
+const LABEL_MIN_GAP = 20;
+const LABEL_REPULSION_STRENGTH = 0.9;
+const PREFERRED_DIRS = {
+  tr: { x: Math.SQRT1_2, y: -Math.SQRT1_2 },
+  br: { x: Math.SQRT1_2, y: Math.SQRT1_2 },
+  tl: { x: -Math.SQRT1_2, y: -Math.SQRT1_2 },
+  bl: { x: -Math.SQRT1_2, y: Math.SQRT1_2 }
+} as const;
+
+const getPreferredDir = (preferred?: 'tr' | 'br' | 'tl' | 'bl') => {
+  if (preferred && preferred in PREFERRED_DIRS) return PREFERRED_DIRS[preferred];
+  return PREFERRED_DIRS.tr;
+};
+
+const rectGapDistance = (a: Rect2D, b: Rect2D) => {
+  const dx = Math.max(a.x - (b.x + b.width), b.x - (a.x + a.width), 0);
+  const dy = Math.max(a.y - (b.y + b.height), b.y - (a.y + a.height), 0);
+  return Math.hypot(dx, dy);
+};
+
+const closestPointOnRectBoundary = (p: { x: number; y: number }, r: Rect2D) => {
+  const left = r.x;
+  const right = r.x + r.width;
+  const top = r.y;
+  const bottom = r.y + r.height;
+  const cx = clamp(p.x, left, right);
+  const cy = clamp(p.y, top, bottom);
+  const inside = p.x > left && p.x < right && p.y > top && p.y < bottom;
+  if (!inside) return { x: cx, y: cy };
+  const dLeft = Math.abs(p.x - left);
+  const dRight = Math.abs(right - p.x);
+  const dTop = Math.abs(p.y - top);
+  const dBottom = Math.abs(bottom - p.y);
+  const minD = Math.min(dLeft, dRight, dTop, dBottom);
+  if (minD === dLeft) return { x: left, y: p.y };
+  if (minD === dRight) return { x: right, y: p.y };
+  if (minD === dTop) return { x: p.x, y: top };
+  return { x: p.x, y: bottom };
+};
+
+const preferredRectFromContact = (
+  contact: { x: number; y: number },
+  m: { width: number; height: number; bx: number; by: number },
+  preferred?: 'tr' | 'br' | 'tl' | 'bl'
+): Rect2D => {
+  switch (preferred) {
+    case 'br':
+      return { x: contact.x, y: contact.y, width: m.width, height: m.height };
+    case 'tl':
+      return { x: contact.x - m.width, y: contact.y - m.height, width: m.width, height: m.height };
+    case 'bl':
+      return { x: contact.x - m.width, y: contact.y, width: m.width, height: m.height };
+    case 'tr':
+    default:
+      return { x: contact.x, y: contact.y - m.height, width: m.width, height: m.height };
+  }
+};
+
+const projectRectToAnchorDistance = (
+  anchor: { x: number; y: number },
+  rect: Rect2D,
+  preferredDir: { x: number; y: number }
+): Rect2D => {
+  let out = { ...rect };
+  for (let i = 0; i < 8; i += 1) {
+    const q = closestPointOnRectBoundary(anchor, out);
+    const dx = q.x - anchor.x;
+    const dy = q.y - anchor.y;
+    const d = Math.hypot(dx, dy);
+    if (d < 1e-6) {
+      out.x += preferredDir.x * LABEL_ANCHOR_DISTANCE;
+      out.y += preferredDir.y * LABEL_ANCHOR_DISTANCE;
+      continue;
+    }
+    const shift = LABEL_ANCHOR_DISTANCE - d;
+    if (Math.abs(shift) < 1e-4) break;
+    out.x += (dx / d) * shift;
+    out.y += (dy / d) * shift;
+  }
+  return out;
+};
+
+function placeLabels(
+  canvasWidth: number,
+  canvasHeight: number,
+  requests: LabelPlacementRequest[]
+) {
+  ensureLabelAnimator();
+  const placedForDebug: Array<{ req: LabelPlacementRequest; rect: Rect2D }> = [];
+  type PlacementEntry = {
+    req: LabelPlacementRequest;
+    m: { width: number; height: number; bx: number; by: number };
+    anchorInside: boolean;
+    preferredDir: { x: number; y: number };
+    preferredRect: Rect2D;
+    rect: Rect2D;
+  };
+
+  const sorted = [...requests].sort((a, b) => b.priority - a.priority);
+  const entries: PlacementEntry[] = sorted.map((req) => {
+    const m = labelMetrics(req.label);
+    const preferredDir = getPreferredDir(req.preferred);
+    const anchorInside =
+      req.anchor.x >= 0 && req.anchor.x <= canvasWidth && req.anchor.y >= 0 && req.anchor.y <= canvasHeight;
+    const preferredContact = {
+      x: req.anchor.x + preferredDir.x * LABEL_ANCHOR_DISTANCE,
+      y: req.anchor.y + preferredDir.y * LABEL_ANCHOR_DISTANCE
+    };
+    const preferredRect = preferredRectFromContact(preferredContact, m, req.preferred);
+    if (anchorInside) {
+      return {
+        req,
+        m,
+        anchorInside,
+        preferredDir,
+        preferredRect,
+        rect: projectRectToAnchorDistance(req.anchor, preferredRect, preferredDir)
+      };
+    }
+    // Exception: if anchor is outside canvas, allow clamping inside canvas.
+    return {
+      req,
+      m,
+      anchorInside,
+      preferredDir,
+      preferredRect,
+      rect: {
+        x: clamp(preferredRect.x, 0, Math.max(0, canvasWidth - m.width)),
+        y: clamp(preferredRect.y, 0, Math.max(0, canvasHeight - m.height)),
+        width: m.width,
+        height: m.height
+      }
+    };
+  });
+
+  // Coordinate-descent / relaxation with strict projection to anchor distance.
+  // Optimized with a spatial grid (near-neighbor checks) + early stop.
+  const passCount = 7;
+  const iterCount = 12;
+  const earlyStopIterEps = 0.06;
+  const earlyStopPassEps = 0.08;
+  const maxStep = 14;
+  const moveScale = 0.55;
+  const cellSize = Math.max(
+    32,
+    Math.ceil(
+      Math.max(...entries.map((e) => Math.max(e.rect.width, e.rect.height)), 32) + LABEL_MIN_GAP
+    )
+  );
+
+  const cellRangeForRect = (r: Rect2D, margin = 0) => {
+    const x0 = Math.floor((r.x - margin) / cellSize);
+    const y0 = Math.floor((r.y - margin) / cellSize);
+    const x1 = Math.floor((r.x + r.width + margin) / cellSize);
+    const y1 = Math.floor((r.y + r.height + margin) / cellSize);
+    return { x0, y0, x1, y1 };
+  };
+
+  const buildSpatialGrid = () => {
+    const grid = new Map<string, number[]>();
+    const margin = LABEL_MIN_GAP;
+    for (let i = 0; i < entries.length; i += 1) {
+      const range = cellRangeForRect(entries[i].rect, margin);
+      for (let cy = range.y0; cy <= range.y1; cy += 1) {
+        for (let cx = range.x0; cx <= range.x1; cx += 1) {
+          const key = `${cx},${cy}`;
+          const bucket = grid.get(key);
+          if (bucket) bucket.push(i);
+          else grid.set(key, [i]);
+        }
+      }
+    }
+    return grid;
+  };
+
+  const getNeighborIndexes = (idx: number, grid: Map<string, number[]>) => {
+    const out = new Set<number>();
+    const range = cellRangeForRect(entries[idx].rect, LABEL_MIN_GAP);
+    for (let cy = range.y0; cy <= range.y1; cy += 1) {
+      for (let cx = range.x0; cx <= range.x1; cx += 1) {
+        const bucket = grid.get(`${cx},${cy}`);
+        if (!bucket) continue;
+        for (const j of bucket) {
+          if (j !== idx) out.add(j);
+        }
+      }
+    }
+    return out;
+  };
+
+  for (let pass = 0; pass < passCount; pass += 1) {
+    const order =
+      pass % 2 === 0
+        ? entries.map((_, i) => i)
+        : entries.map((_, i) => entries.length - 1 - i);
+
+    let passMaxMove = 0;
+    for (let it = 0; it < iterCount; it += 1) {
+      const grid = buildSpatialGrid();
+      let iterMaxMove = 0;
+
+      for (const idx of order) {
+        const e = entries[idx];
+        if (!e.anchorInside) continue;
+
+        const rect = e.rect;
+        const priorityWeight = 1 + e.req.priority / 300;
+        let fx = (e.preferredRect.x - rect.x) * (0.18 * priorityWeight);
+        let fy = (e.preferredRect.y - rect.y) * (0.18 * priorityWeight);
+
+        const neighbors = getNeighborIndexes(idx, grid);
+        for (const j of neighbors) {
+          const other = entries[j].rect;
+          const gap = rectGapDistance(rect, other);
+          const miss = LABEL_MIN_GAP - gap;
+          if (miss <= 0) continue;
+
+          const acx = rect.x + rect.width * 0.5;
+          const acy = rect.y + rect.height * 0.5;
+          const bcx = other.x + other.width * 0.5;
+          const bcy = other.y + other.height * 0.5;
+          const dx = acx - bcx;
+          const dy = acy - bcy;
+          const len = Math.hypot(dx, dy) || 1;
+          fx += (dx / len) * (miss * LABEL_REPULSION_STRENGTH);
+          fy += (dy / len) * (miss * LABEL_REPULSION_STRENGTH);
+        }
+
+        if (rect.x < 0) fx += (-rect.x) * 1.6;
+        if (rect.y < 0) fy += (-rect.y) * 1.6;
+        if (rect.x + rect.width > canvasWidth) fx -= (rect.x + rect.width - canvasWidth) * 1.6;
+        if (rect.y + rect.height > canvasHeight) fy -= (rect.y + rect.height - canvasHeight) * 1.6;
+
+        const fl = Math.hypot(fx, fy);
+        if (fl > maxStep) {
+          fx = (fx / fl) * maxStep;
+          fy = (fy / fl) * maxStep;
+        }
+
+        const nextRect = projectRectToAnchorDistance(
+          e.req.anchor,
+          {
+            x: rect.x + fx * moveScale,
+            y: rect.y + fy * moveScale,
+            width: rect.width,
+            height: rect.height
+          },
+          e.preferredDir
+        );
+        const move = Math.hypot(nextRect.x - rect.x, nextRect.y - rect.y);
+        if (move > iterMaxMove) iterMaxMove = move;
+        e.rect = nextRect;
+      }
+
+      if (iterMaxMove > passMaxMove) passMaxMove = iterMaxMove;
+      if (iterMaxMove < earlyStopIterEps) break;
+    }
+
+    if (passMaxMove < earlyStopPassEps) break;
+  }
+
+  for (const e of entries) {
+    const m = e.m;
+    const anchorInside =
+      e.req.anchor.x >= 0 && e.req.anchor.x <= canvasWidth && e.req.anchor.y >= 0 && e.req.anchor.y <= canvasHeight;
+    if (anchorInside) {
+      e.rect = projectRectToAnchorDistance(e.req.anchor, e.rect, e.preferredDir);
+      setLabelPositionTarget(e.req.label, e.rect.x - m.bx, e.rect.y - m.by);
+    } else {
+      const rect = {
+        x: clamp(e.preferredRect.x, 0, Math.max(0, canvasWidth - m.width)),
+        y: clamp(e.preferredRect.y, 0, Math.max(0, canvasHeight - m.height)),
+        width: m.width,
+        height: m.height
+      };
+      e.rect = rect;
+      setLabelPositionTarget(e.req.label, rect.x - m.bx, rect.y - m.by);
+    }
+    e.req.label.visible = true;
+    placedForDebug.push({ req: e.req, rect: e.rect });
+  }
+
+  return placedForDebug;
+}
 
 function renderGeometry() {
   const w = Math.round(app.renderer.width);
@@ -88,7 +440,7 @@ function renderGeometry() {
       demoRectState.b = { x: w / 2 + 20, y: h / 2 + 20 };
     }
     const rectA = { w: 150, h: 90, r: 10 };
-    const rectB = { w: 210, h: 120, r: 12 };
+    const rectB = { w: 210, h: 120, r: 10 };
     const convexHull = (points: { x: number; y: number }[]) => {
       if (points.length <= 3) return points;
       const pts = [...points].sort((a, b) => (a.x === b.x ? a.y - b.y : a.x - b.x));
@@ -119,6 +471,19 @@ function renderGeometry() {
       const hullGfx = demoHull;
       const s1Color = 0x4cd964;
       const s2Color = 0xff4d4d;
+      const labelRequests: LabelPlacementRequest[] = [];
+      const queueLabel = (
+        id: string,
+        label: BitmapText | null,
+        anchor: { x: number; y: number },
+        kind: LabelKind,
+        priority: number,
+        tangent?: { x: number; y: number },
+        preferred?: 'tr' | 'br' | 'tl' | 'bl'
+      ) => {
+        if (!label) return;
+        labelRequests.push({ id, label, anchor, kind, priority, tangent, preferred });
+      };
       // removed curve controls
       const cornersA = [
         { x: demoRectState.a.x, y: demoRectState.a.y },
@@ -179,21 +544,68 @@ function renderGeometry() {
         demoHullLabelB = createBitmapTextNode('S2', labelStyle);
         demoHullLabelB.zIndex = 9998;
       }
+      if (!demoS1MidLabel) {
+        demoS1MidLabel = createBitmapTextNode('S1M', { fill: s1Color, fontSize: 11, fontWeight: '600' });
+        demoS1MidLabel.zIndex = 9998;
+      }
+      if (!demoS2MidLabel) {
+        demoS2MidLabel = createBitmapTextNode('S2M', { fill: s2Color, fontSize: 11, fontWeight: '600' });
+        demoS2MidLabel.zIndex = 9998;
+      }
       const labels = [demoHullLabelA, demoHullLabelB];
       labels.forEach((label) => {
         if (!label?.parent) uiLayer.addChild(label);
         label.visible = false;
       });
-      bridgeEdges.slice(0, 2).forEach(({ a, b }, idx) => {
-        const label = labels[idx];
-        if (!label) return;
-        const midX = (a.x + b.x) / 2;
-        const midY = (a.y + b.y) / 2;
-        label.text = idx === 0 ? 'S1' : 'S2';
-        label.position.set(midX + 6, midY - 18);
-        label.visible = true;
-        label.tint = idx === 0 ? s1Color : s2Color;
-      });
+      if (demoS1MidLabel.parent === null) uiLayer.addChild(demoS1MidLabel);
+      demoS1MidLabel.visible = false;
+      if (demoS2MidLabel.parent === null) uiLayer.addChild(demoS2MidLabel);
+      demoS2MidLabel.visible = false;
+      const edge1 = bridgeEdges[0] ?? null;
+      const edge2 = bridgeEdges[1] ?? null;
+      const s1Mid: { x: number; y: number } | null = edge1
+        ? { x: (edge1.a.x + edge1.b.x) / 2, y: (edge1.a.y + edge1.b.y) / 2 }
+        : null;
+      const s2Mid: { x: number; y: number } | null = edge2
+        ? { x: (edge2.a.x + edge2.b.x) / 2, y: (edge2.a.y + edge2.b.y) / 2 }
+        : null;
+
+      if (edge1 && s1Mid && demoHullLabelA) {
+        demoHullLabelA.tint = s1Color;
+        queueLabel(
+          'S1',
+          demoHullLabelA,
+          s1Mid,
+          'segment',
+          265,
+          { x: edge1.b.x - edge1.a.x, y: edge1.b.y - edge1.a.y },
+          'tr'
+        );
+      }
+      if (edge2 && s2Mid && demoHullLabelB) {
+        demoHullLabelB.tint = s2Color;
+        queueLabel(
+          'S2',
+          demoHullLabelB,
+          s2Mid,
+          'segment',
+          265,
+          { x: edge2.b.x - edge2.a.x, y: edge2.b.y - edge2.a.y },
+          'tr'
+        );
+      }
+      if (s1Mid && demoS1MidLabel) {
+        hullGfx.circle(s1Mid.x, s1Mid.y, 4);
+        hullGfx.fill({ color: s1Color, alpha: 0.9 });
+        demoS1MidLabel.tint = s1Color;
+        queueLabel('S1M', demoS1MidLabel, s1Mid, 'point', 260, undefined, 'tr');
+      }
+      if (s2Mid && demoS2MidLabel) {
+        hullGfx.circle(s2Mid.x, s2Mid.y, 4);
+        hullGfx.fill({ color: s2Color, alpha: 0.9 });
+        demoS2MidLabel.tint = s2Color;
+        queueLabel('S2M', demoS2MidLabel, s2Mid, 'point', 260, undefined, 'tr');
+      }
   
       if (!demoGreenCornerLabelA) {
         demoGreenCornerLabelA = createBitmapTextNode('A', { fill: 0xffd86b, fontSize: 12, fontWeight: '600' });
@@ -302,6 +714,38 @@ function renderGeometry() {
         demoSegRedB2Label = createBitmapTextNode('S2B', { fill: s2Color, fontSize: 11, fontWeight: '600' });
         demoSegRedB2Label.zIndex = 9998;
       }
+      if (!demoProjS1MidOnA1Label) {
+        demoProjS1MidOnA1Label = createBitmapTextNode('PAS1M', { fill: s1Color, fontSize: 11, fontWeight: '600' });
+        demoProjS1MidOnA1Label.zIndex = 9998;
+      }
+      if (!demoProjS1MidOnB1Label) {
+        demoProjS1MidOnB1Label = createBitmapTextNode('PBS1M', { fill: s1Color, fontSize: 11, fontWeight: '600' });
+        demoProjS1MidOnB1Label.zIndex = 9998;
+      }
+      if (!demoProjS1MidOnAB1Label) {
+        demoProjS1MidOnAB1Label = createBitmapTextNode('PS1M', { fill: s1Color, fontSize: 11, fontWeight: '600' });
+        demoProjS1MidOnAB1Label.zIndex = 9998;
+      }
+      if (!demoProjS1MidOnABaseLabel) {
+        demoProjS1MidOnABaseLabel = createBitmapTextNode('PMS1M', { fill: s1Color, fontSize: 11, fontWeight: '600' });
+        demoProjS1MidOnABaseLabel.zIndex = 9998;
+      }
+      if (!demoProjS2MidOnA2Label) {
+        demoProjS2MidOnA2Label = createBitmapTextNode('PAS2M', { fill: s2Color, fontSize: 11, fontWeight: '600' });
+        demoProjS2MidOnA2Label.zIndex = 9998;
+      }
+      if (!demoProjS2MidOnB2Label) {
+        demoProjS2MidOnB2Label = createBitmapTextNode('PBS2M', { fill: s2Color, fontSize: 11, fontWeight: '600' });
+        demoProjS2MidOnB2Label.zIndex = 9998;
+      }
+      if (!demoProjS2MidOnAB2Label) {
+        demoProjS2MidOnAB2Label = createBitmapTextNode('PS2M', { fill: s2Color, fontSize: 11, fontWeight: '600' });
+        demoProjS2MidOnAB2Label.zIndex = 9998;
+      }
+      if (!demoProjS2MidOnABaseLabel) {
+        demoProjS2MidOnABaseLabel = createBitmapTextNode('PMS2M', { fill: s2Color, fontSize: 11, fontWeight: '600' });
+        demoProjS2MidOnABaseLabel.zIndex = 9998;
+      }
       if (demoCurveLabel1.parent === null) uiLayer.addChild(demoCurveLabel1);
       if (demoCurveLabel2.parent === null) uiLayer.addChild(demoCurveLabel2);
       if (demoCurveLabelM.parent === null) uiLayer.addChild(demoCurveLabelM);
@@ -315,6 +759,14 @@ function renderGeometry() {
       if (demoSegGreenB1Label.parent === null) uiLayer.addChild(demoSegGreenB1Label);
       if (demoSegRedA2Label.parent === null) uiLayer.addChild(demoSegRedA2Label);
       if (demoSegRedB2Label.parent === null) uiLayer.addChild(demoSegRedB2Label);
+      if (demoProjS1MidOnA1Label.parent === null) uiLayer.addChild(demoProjS1MidOnA1Label);
+      if (demoProjS1MidOnB1Label.parent === null) uiLayer.addChild(demoProjS1MidOnB1Label);
+      if (demoProjS1MidOnAB1Label.parent === null) uiLayer.addChild(demoProjS1MidOnAB1Label);
+      if (demoProjS1MidOnABaseLabel.parent === null) uiLayer.addChild(demoProjS1MidOnABaseLabel);
+      if (demoProjS2MidOnA2Label.parent === null) uiLayer.addChild(demoProjS2MidOnA2Label);
+      if (demoProjS2MidOnB2Label.parent === null) uiLayer.addChild(demoProjS2MidOnB2Label);
+      if (demoProjS2MidOnAB2Label.parent === null) uiLayer.addChild(demoProjS2MidOnAB2Label);
+      if (demoProjS2MidOnABaseLabel.parent === null) uiLayer.addChild(demoProjS2MidOnABaseLabel);
       demoCurveLabel1.visible = false;
       demoCurveLabel2.visible = false;
       demoCurveLabelM.visible = false;
@@ -328,6 +780,14 @@ function renderGeometry() {
       demoSegGreenB1Label.visible = false;
       demoSegRedA2Label.visible = false;
       demoSegRedB2Label.visible = false;
+      demoProjS1MidOnA1Label.visible = false;
+      demoProjS1MidOnB1Label.visible = false;
+      demoProjS1MidOnAB1Label.visible = false;
+      demoProjS1MidOnABaseLabel.visible = false;
+      demoProjS2MidOnA2Label.visible = false;
+      demoProjS2MidOnB2Label.visible = false;
+      demoProjS2MidOnAB2Label.visible = false;
+      demoProjS2MidOnABaseLabel.visible = false;
   
       const rectAX0 = demoRectState.a.x;
       const rectAY0 = demoRectState.a.y;
@@ -435,18 +895,15 @@ function renderGeometry() {
       hullGfx.circle(ptA.x, ptA.y, 4);
       hullGfx.circle(ptB.x, ptB.y, 4);
       hullGfx.fill({ color: 0xffd86b, alpha: 0.9 });
-      demoGreenCornerLabelA.position.set(ptA.x + 6, ptA.y - 16);
-      demoGreenCornerLabelB.position.set(ptB.x + 6, ptB.y - 16);
-      demoGreenCornerLabelA.visible = true;
-      demoGreenCornerLabelB.visible = true;
+      queueLabel('A', demoGreenCornerLabelA, ptA, 'point', 300, undefined, 'tr');
+      queueLabel('B', demoGreenCornerLabelB, ptB, 'point', 300, undefined, 'tr');
   
       const midX = (ptA.x + ptB.x) / 2;
       const midY = (ptA.y + ptB.y) / 2;
       const abMid = { x: midX, y: midY };
       hullGfx.circle(abMid.x, abMid.y, 4);
       hullGfx.fill({ color: 0xffd86b, alpha: 0.9 });
-      demoGreenMidLabel.position.set(abMid.x + 6, abMid.y - 14);
-      demoGreenMidLabel.visible = true;
+      queueLabel('M', demoGreenMidLabel, abMid, 'point', 220, undefined, 'tr');
   
       const projOnLine = (p: { x: number; y: number }, a: { x: number; y: number }, b: { x: number; y: number }) => {
         const vx = b.x - a.x;
@@ -459,17 +916,78 @@ function renderGeometry() {
   
       const seg1A = seg1GreenA as unknown as { p1: { x: number; y: number }; p2: { x: number; y: number } } | null;
       const seg1B = seg1GreenB as unknown as { p1: { x: number; y: number }; p2: { x: number; y: number } } | null;
+      let pas1mPoint: { x: number; y: number } | null = null;
+      let pbs1mPoint: { x: number; y: number } | null = null;
+      let ps1mPoint: { x: number; y: number } | null = null;
+      let pms1mPoint: { x: number; y: number } | null = null;
       if (seg1A) {
         const mx = (seg1A.p1.x + seg1A.p2.x) * 0.5;
         const my = (seg1A.p1.y + seg1A.p2.y) * 0.5;
-        demoSegGreenA1Label.position.set(mx + 6, my - 14);
-        demoSegGreenA1Label.visible = true;
+        queueLabel(
+          'S1A',
+          demoSegGreenA1Label,
+          { x: mx, y: my },
+          'segment',
+          210,
+          { x: seg1A.p2.x - seg1A.p1.x, y: seg1A.p2.y - seg1A.p1.y }
+        );
       }
       if (seg1B) {
         const mx = (seg1B.p1.x + seg1B.p2.x) * 0.5;
         const my = (seg1B.p1.y + seg1B.p2.y) * 0.5;
-        demoSegGreenB1Label.position.set(mx + 6, my - 14);
-        demoSegGreenB1Label.visible = true;
+        queueLabel(
+          'S1B',
+          demoSegGreenB1Label,
+          { x: mx, y: my },
+          'segment',
+          210,
+          { x: seg1B.p2.x - seg1B.p1.x, y: seg1B.p2.y - seg1B.p1.y }
+        );
+      }
+      if (s1Mid && seg1A && demoProjS1MidOnA1Label) {
+        const pas1m = projOnLine(s1Mid, seg1A.p1, seg1A.p2);
+        if (pas1m) {
+          pas1mPoint = pas1m;
+          hullGfx.circle(pas1m.x, pas1m.y, 4);
+          hullGfx.fill({ color: s1Color, alpha: 0.9 });
+          demoProjS1MidOnA1Label.tint = s1Color;
+          queueLabel('PAS1M', demoProjS1MidOnA1Label, pas1m, 'point', 230, undefined, 'tr');
+        }
+      }
+      if (s1Mid && seg1B && demoProjS1MidOnB1Label) {
+        const pbs1m = projOnLine(s1Mid, seg1B.p1, seg1B.p2);
+        if (pbs1m) {
+          pbs1mPoint = pbs1m;
+          hullGfx.circle(pbs1m.x, pbs1m.y, 4);
+          hullGfx.fill({ color: s1Color, alpha: 0.9 });
+          demoProjS1MidOnB1Label.tint = s1Color;
+          queueLabel('PBS1M', demoProjS1MidOnB1Label, pbs1m, 'point', 230, undefined, 'tr');
+        }
+      }
+      if (pas1mPoint && pbs1mPoint) {
+        hullGfx.moveTo(pas1mPoint.x, pas1mPoint.y);
+        hullGfx.lineTo(pbs1mPoint.x, pbs1mPoint.y);
+        hullGfx.stroke({ width: 1, color: s1Color, alpha: 0.75 });
+      }
+      if (s1Mid && pas1mPoint && pbs1mPoint && demoProjS1MidOnAB1Label) {
+        const ps1m = projOnLine(s1Mid, pas1mPoint, pbs1mPoint);
+        if (ps1m) {
+          ps1mPoint = ps1m;
+          hullGfx.circle(ps1m.x, ps1m.y, 4);
+          hullGfx.fill({ color: s1Color, alpha: 0.9 });
+          demoProjS1MidOnAB1Label.tint = s1Color;
+          queueLabel('PS1M', demoProjS1MidOnAB1Label, ps1m, 'point', 240, undefined, 'tr');
+        }
+      }
+      if (s1Mid && ps1mPoint && demoProjS1MidOnABaseLabel) {
+        const pms1m = lineIntersection(s1Mid, ps1mPoint, ptA, ptB);
+        if (pms1m) {
+          pms1mPoint = pms1m;
+          hullGfx.circle(pms1m.x, pms1m.y, 4);
+          hullGfx.fill({ color: s1Color, alpha: 0.9 });
+          demoProjS1MidOnABaseLabel.tint = s1Color;
+          queueLabel('PMS1M', demoProjS1MidOnABaseLabel, pms1m, 'point', 240, undefined, 'tr');
+        }
       }
   
       if (abMid && seg1A) {
@@ -477,8 +995,7 @@ function renderGeometry() {
         if (p1a) {
           hullGfx.circle(p1a.x, p1a.y, 4);
           hullGfx.fill({ color: s1Color, alpha: 0.9 });
-          demoGreenProjLabelA.position.set(p1a.x + 6, p1a.y - 14);
-          demoGreenProjLabelA.visible = true;
+          queueLabel('P1A', demoGreenProjLabelA, p1a, 'point', 180, undefined, 'tr');
         }
       }
       if (abMid && seg1B) {
@@ -486,23 +1003,83 @@ function renderGeometry() {
         if (p1b) {
           hullGfx.circle(p1b.x, p1b.y, 4);
           hullGfx.fill({ color: s1Color, alpha: 0.9 });
-          demoGreenProjLabelB.position.set(p1b.x + 6, p1b.y - 14);
-          demoGreenProjLabelB.visible = true;
+          queueLabel('P1B', demoGreenProjLabelB, p1b, 'point', 180, undefined, 'tr');
         }
       }
       const seg2A = seg2RedA as unknown as { p1: { x: number; y: number }; p2: { x: number; y: number } } | null;
       const seg2B = seg2RedB as unknown as { p1: { x: number; y: number }; p2: { x: number; y: number } } | null;
+      let pas2mPoint: { x: number; y: number } | null = null;
+      let pbs2mPoint: { x: number; y: number } | null = null;
+      let ps2mPoint: { x: number; y: number } | null = null;
+      let pms2mPoint: { x: number; y: number } | null = null;
       if (seg2A) {
         const mx = (seg2A.p1.x + seg2A.p2.x) * 0.5;
         const my = (seg2A.p1.y + seg2A.p2.y) * 0.5;
-        demoSegRedA2Label.position.set(mx + 6, my - 14);
-        demoSegRedA2Label.visible = true;
+        queueLabel(
+          'S2A',
+          demoSegRedA2Label,
+          { x: mx, y: my },
+          'segment',
+          210,
+          { x: seg2A.p2.x - seg2A.p1.x, y: seg2A.p2.y - seg2A.p1.y }
+        );
       }
       if (seg2B) {
         const mx = (seg2B.p1.x + seg2B.p2.x) * 0.5;
         const my = (seg2B.p1.y + seg2B.p2.y) * 0.5;
-        demoSegRedB2Label.position.set(mx + 6, my - 14);
-        demoSegRedB2Label.visible = true;
+        queueLabel(
+          'S2B',
+          demoSegRedB2Label,
+          { x: mx, y: my },
+          'segment',
+          210,
+          { x: seg2B.p2.x - seg2B.p1.x, y: seg2B.p2.y - seg2B.p1.y }
+        );
+      }
+      if (s2Mid && seg2A && demoProjS2MidOnA2Label) {
+        const pas2m = projOnLine(s2Mid, seg2A.p1, seg2A.p2);
+        if (pas2m) {
+          pas2mPoint = pas2m;
+          hullGfx.circle(pas2m.x, pas2m.y, 4);
+          hullGfx.fill({ color: s2Color, alpha: 0.9 });
+          demoProjS2MidOnA2Label.tint = s2Color;
+          queueLabel('PAS2M', demoProjS2MidOnA2Label, pas2m, 'point', 230, undefined, 'tr');
+        }
+      }
+      if (s2Mid && seg2B && demoProjS2MidOnB2Label) {
+        const pbs2m = projOnLine(s2Mid, seg2B.p1, seg2B.p2);
+        if (pbs2m) {
+          pbs2mPoint = pbs2m;
+          hullGfx.circle(pbs2m.x, pbs2m.y, 4);
+          hullGfx.fill({ color: s2Color, alpha: 0.9 });
+          demoProjS2MidOnB2Label.tint = s2Color;
+          queueLabel('PBS2M', demoProjS2MidOnB2Label, pbs2m, 'point', 230, undefined, 'tr');
+        }
+      }
+      if (pas2mPoint && pbs2mPoint) {
+        hullGfx.moveTo(pas2mPoint.x, pas2mPoint.y);
+        hullGfx.lineTo(pbs2mPoint.x, pbs2mPoint.y);
+        hullGfx.stroke({ width: 1, color: s2Color, alpha: 0.75 });
+      }
+      if (s2Mid && pas2mPoint && pbs2mPoint && demoProjS2MidOnAB2Label) {
+        const ps2m = projOnLine(s2Mid, pas2mPoint, pbs2mPoint);
+        if (ps2m) {
+          ps2mPoint = ps2m;
+          hullGfx.circle(ps2m.x, ps2m.y, 4);
+          hullGfx.fill({ color: s2Color, alpha: 0.9 });
+          demoProjS2MidOnAB2Label.tint = s2Color;
+          queueLabel('PS2M', demoProjS2MidOnAB2Label, ps2m, 'point', 240, undefined, 'tr');
+        }
+      }
+      if (s2Mid && ps2mPoint && demoProjS2MidOnABaseLabel) {
+        const pms2m = lineIntersection(s2Mid, ps2mPoint, ptA, ptB);
+        if (pms2m) {
+          pms2mPoint = pms2m;
+          hullGfx.circle(pms2m.x, pms2m.y, 4);
+          hullGfx.fill({ color: s2Color, alpha: 0.9 });
+          demoProjS2MidOnABaseLabel.tint = s2Color;
+          queueLabel('PMS2M', demoProjS2MidOnABaseLabel, pms2m, 'point', 240, undefined, 'tr');
+        }
       }
   
       if (abMid && seg2A) {
@@ -510,8 +1087,7 @@ function renderGeometry() {
         if (p2a) {
           hullGfx.circle(p2a.x, p2a.y, 4);
           hullGfx.fill({ color: s2Color, alpha: 0.9 });
-          demoRedProjLabelA.position.set(p2a.x + 6, p2a.y - 14);
-          demoRedProjLabelA.visible = true;
+          queueLabel('P2A', demoRedProjLabelA, p2a, 'point', 180, undefined, 'tr');
         }
       }
       if (abMid && seg2B) {
@@ -519,8 +1095,7 @@ function renderGeometry() {
         if (p2b) {
           hullGfx.circle(p2b.x, p2b.y, 4);
           hullGfx.fill({ color: s2Color, alpha: 0.9 });
-          demoRedProjLabelB.position.set(p2b.x + 6, p2b.y - 14);
-          demoRedProjLabelB.visible = true;
+          queueLabel('P2B', demoRedProjLabelB, p2b, 'point', 180, undefined, 'tr');
         }
       }
   
@@ -531,8 +1106,7 @@ function renderGeometry() {
         if (interI1) {
           hullGfx.circle(interI1.x, interI1.y, 4);
           hullGfx.fill({ color: s1Color, alpha: 0.9 });
-          demoGreenIntersectionLabel.position.set(interI1.x + 6, interI1.y - 14);
-          demoGreenIntersectionLabel.visible = true;
+          queueLabel('I1', demoGreenIntersectionLabel, interI1, 'point', 290, undefined, 'tr');
         }
       }
       if (seg2A && seg2B) {
@@ -540,8 +1114,7 @@ function renderGeometry() {
         if (interI2) {
           hullGfx.circle(interI2.x, interI2.y, 4);
           hullGfx.fill({ color: s2Color, alpha: 0.9 });
-          demoRedIntersectionLabel.position.set(interI2.x + 6, interI2.y - 14);
-          demoRedIntersectionLabel.visible = true;
+          queueLabel('I2', demoRedIntersectionLabel, interI2, 'point', 290, undefined, 'tr');
         }
       }
   
@@ -567,29 +1140,33 @@ function renderGeometry() {
       if (seg1 && abMid) {
         const ordered = orderSegment(seg1);
         const candidates: Array<{ x: number; y: number }> = [];
-        const p1a = seg1A ? projOnLine(abMid, seg1A.p1, seg1A.p2) : null;
-        const p1b = seg1B ? projOnLine(abMid, seg1B.p1, seg1B.p2) : null;
-        if (p1a) candidates.push(p1a);
-        if (p1b) candidates.push(p1b);
-        candidates.push(abMid);
-        if (interI1) candidates.push(interI1);
-        const distScore = (p: { x: number; y: number }) =>
-          Math.hypot(p.x - ordered.start.x, p.y - ordered.start.y) + Math.hypot(p.x - ordered.end.x, p.y - ordered.end.y);
-        const best = candidates.reduce((acc, cur) => (distScore(cur) < distScore(acc) ? cur : acc), candidates[0]);
-        c1Start = ordered.start;
-        c1End = ordered.end;
-        c1Control = best;
-        const bestColor =
-          samePoint(best, abMid) ? 0xffd86b : s1Color;
-        hullGfx.circle(best.x, best.y, 7);
-        hullGfx.fill({ color: bestColor, alpha: 0.95 });
-        hullGfx.moveTo(c1Start.x, c1Start.y);
-        hullGfx.quadraticCurveTo(best.x, best.y, c1End.x, c1End.y);
-        hullGfx.stroke({ width: 2.5, color: s1Color, alpha: 0.9 });
-        const c1MidX = 0.25 * c1Start.x + 0.5 * best.x + 0.25 * c1End.x;
-        const c1MidY = 0.25 * c1Start.y + 0.5 * best.y + 0.25 * c1End.y;
-        demoCurveLabel1.position.set(c1MidX + 6, c1MidY - 16);
-        demoCurveLabel1.visible = true;
+        if (ps1mPoint) candidates.push(ps1mPoint);
+        if (pms1mPoint) candidates.push(pms1mPoint);
+        if (candidates.length) {
+          const distScore = (p: { x: number; y: number }) =>
+            Math.hypot(p.x - ordered.start.x, p.y - ordered.start.y) + Math.hypot(p.x - ordered.end.x, p.y - ordered.end.y);
+          const best = candidates.reduce((acc, cur) => (distScore(cur) < distScore(acc) ? cur : acc), candidates[0]);
+          c1Start = ordered.start;
+          c1End = ordered.end;
+          c1Control = best;
+          const bestColor =
+            samePoint(best, abMid) ? 0xffd86b : s1Color;
+          hullGfx.circle(best.x, best.y, 7);
+          hullGfx.fill({ color: bestColor, alpha: 0.95 });
+          hullGfx.moveTo(c1Start.x, c1Start.y);
+          hullGfx.quadraticCurveTo(best.x, best.y, c1End.x, c1End.y);
+          hullGfx.stroke({ width: 2.5, color: s1Color, alpha: 0.9 });
+          const c1MidX = 0.25 * c1Start.x + 0.5 * best.x + 0.25 * c1End.x;
+          const c1MidY = 0.25 * c1Start.y + 0.5 * best.y + 0.25 * c1End.y;
+          queueLabel(
+            'C1',
+            demoCurveLabel1,
+            { x: c1MidX, y: c1MidY },
+            'curve',
+            150,
+            { x: c1End.x - c1Start.x, y: c1End.y - c1Start.y }
+          );
+        }
       }
   
       const seg2 = bridgeEdges[1];
@@ -599,29 +1176,33 @@ function renderGeometry() {
       if (seg2 && abMid) {
         const ordered = orderSegment(seg2);
         const candidates: Array<{ x: number; y: number }> = [];
-        const p2a = seg2A ? projOnLine(abMid, seg2A.p1, seg2A.p2) : null;
-        const p2b = seg2B ? projOnLine(abMid, seg2B.p1, seg2B.p2) : null;
-        if (p2a) candidates.push(p2a);
-        if (p2b) candidates.push(p2b);
-        candidates.push(abMid);
-        if (interI2) candidates.push(interI2);
-        const distScore = (p: { x: number; y: number }) =>
-          Math.hypot(p.x - ordered.start.x, p.y - ordered.start.y) + Math.hypot(p.x - ordered.end.x, p.y - ordered.end.y);
-        const best = candidates.reduce((acc, cur) => (distScore(cur) < distScore(acc) ? cur : acc), candidates[0]);
-        c2Start = ordered.start;
-        c2End = ordered.end;
-        c2Control = best;
-        const bestColor =
-          samePoint(best, abMid) ? 0xffd86b : s2Color;
-        hullGfx.circle(best.x, best.y, 7);
-        hullGfx.fill({ color: bestColor, alpha: 0.95 });
-        hullGfx.moveTo(c2Start.x, c2Start.y);
-        hullGfx.quadraticCurveTo(best.x, best.y, c2End.x, c2End.y);
-        hullGfx.stroke({ width: 2.5, color: s2Color, alpha: 0.9 });
-        const c2MidX = 0.25 * c2Start.x + 0.5 * best.x + 0.25 * c2End.x;
-        const c2MidY = 0.25 * c2Start.y + 0.5 * best.y + 0.25 * c2End.y;
-        demoCurveLabel2.position.set(c2MidX + 6, c2MidY - 16);
-        demoCurveLabel2.visible = true;
+        if (ps2mPoint) candidates.push(ps2mPoint);
+        if (pms2mPoint) candidates.push(pms2mPoint);
+        if (candidates.length) {
+          const distScore = (p: { x: number; y: number }) =>
+            Math.hypot(p.x - ordered.start.x, p.y - ordered.start.y) + Math.hypot(p.x - ordered.end.x, p.y - ordered.end.y);
+          const best = candidates.reduce((acc, cur) => (distScore(cur) < distScore(acc) ? cur : acc), candidates[0]);
+          c2Start = ordered.start;
+          c2End = ordered.end;
+          c2Control = best;
+          const bestColor =
+            samePoint(best, abMid) ? 0xffd86b : s2Color;
+          hullGfx.circle(best.x, best.y, 7);
+          hullGfx.fill({ color: bestColor, alpha: 0.95 });
+          hullGfx.moveTo(c2Start.x, c2Start.y);
+          hullGfx.quadraticCurveTo(best.x, best.y, c2End.x, c2End.y);
+          hullGfx.stroke({ width: 2.5, color: s2Color, alpha: 0.9 });
+          const c2MidX = 0.25 * c2Start.x + 0.5 * best.x + 0.25 * c2End.x;
+          const c2MidY = 0.25 * c2Start.y + 0.5 * best.y + 0.25 * c2End.y;
+          queueLabel(
+            'C2',
+            demoCurveLabel2,
+            { x: c2MidX, y: c2MidY },
+            'curve',
+            150,
+            { x: c2End.x - c2Start.x, y: c2End.y - c2Start.y }
+          );
+        }
       }
   
       const quadPoint = (
@@ -678,8 +1259,14 @@ function renderGeometry() {
         hullGfx.stroke({ width: 1, color, alpha: 0.6 });
         if (!label) return;
         label.tint = color;
-        label.position.set(ray.end.x + 6, ray.end.y - 12);
-        label.visible = true;
+        queueLabel(
+          `tan:${label.text}`,
+          label,
+          ray.end,
+          'segment',
+          120,
+          { x: ray.end.x - ray.start.x, y: ray.end.y - ray.start.y }
+        );
       };
 
       if (c1Start && c1Control && c1End && c2Start && c2Control && c2End) {
@@ -739,11 +1326,42 @@ function renderGeometry() {
         const cmP2 = quadPoint(c2Start, c2Control, c2End, cmT);
         const cmMid = { x: (cmP1.x + cmP2.x) / 2, y: (cmP1.y + cmP2.y) / 2 };
         if (demoCurveLabelM) {
-          demoCurveLabelM.position.set(cmMid.x + 6, cmMid.y + 16);
           demoCurveLabelM.tint = 0x7dd3fc;
-          demoCurveLabelM.visible = true;
+          queueLabel(
+            'CM',
+            demoCurveLabelM,
+            cmMid,
+            'curve',
+            140,
+            { x: c2Start.x - c1Start.x, y: c2Start.y - c1Start.y },
+            'br'
+          );
         }
 
+      }
+
+      const placedLabelRects = placeLabels(w, h, labelRequests);
+      if (SHOW_LABEL_CONVEX_RECTS) {
+        const resolveLabelColor = (label: BitmapText) => {
+          if (typeof label.tint === 'number' && Number.isFinite(label.tint) && label.tint !== 0xffffff) {
+            return label.tint;
+          }
+          const fill = (label as unknown as { style?: { fill?: unknown } }).style?.fill;
+          if (typeof fill === 'number' && Number.isFinite(fill)) return fill;
+          if (Array.isArray(fill)) {
+            const first = fill.find((v) => typeof v === 'number');
+            if (typeof first === 'number') return first;
+          }
+          if (typeof label.tint === 'number' && Number.isFinite(label.tint)) return label.tint;
+          return 0xffffff;
+        };
+        for (const { req, rect } of placedLabelRects) {
+          const color = resolveLabelColor(req.label);
+          hullGfx.circle(req.anchor.x, req.anchor.y, LABEL_ANCHOR_DISTANCE);
+          hullGfx.stroke({ width: 1, color, alpha: 0.28 });
+          hullGfx.rect(rect.x, rect.y, rect.width, rect.height);
+          hullGfx.stroke({ width: 1, color, alpha: 0.55 });
+        }
       }
   
     };
@@ -771,10 +1389,10 @@ function renderGeometry() {
           };
           if (demoDragTarget === 'a') {
             demoRectState.a = nextPos;
-            demoRectA?.position.set(nextPos.x, nextPos.y);
+            demoRectAContainer?.position.set(nextPos.x, nextPos.y);
           } else {
             demoRectState.b = nextPos;
-            demoRectB?.position.set(nextPos.x, nextPos.y);
+            demoRectBContainer?.position.set(nextPos.x, nextPos.y);
           }
           drawHull();
         };
@@ -799,31 +1417,33 @@ function renderGeometry() {
     demoHull.zIndex = 9990;
     uiLayer.addChild(demoHull);
   
+    demoRectAContainer = new Container();
+    demoRectAContainer.position.set(demoRectState.a.x, demoRectState.a.y);
+    demoRectAContainer.eventMode = 'static';
+    demoRectAContainer.cursor = 'pointer';
+    demoRectAContainer.on('pointerdown', (evt) => startDemoDrag('a', evt));
     demoRectA = new Graphics();
-    demoRectA.roundRect(0, 0, 150, 90, 10);
+    demoRectA.roundRect(0, 0, rectA.w, rectA.h, rectA.r);
     demoRectA.fill({ color: 0x1f2a3f, alpha: 0.9 });
     demoRectA.stroke({ width: 1, color: 0x5aa7ff, alpha: 0.7 });
-    demoRectA.position.set(demoRectState.a.x, demoRectState.a.y);
-    demoRectA.eventMode = 'static';
-    demoRectA.cursor = 'pointer';
-    demoRectA.on('pointerdown', (evt) => startDemoDrag('a', evt));
     const rectALabel = createBitmapTextNode('Rectangle A', { fill: 0xdfe8ff, fontSize: 14, fontWeight: '600' });
     rectALabel.position.set(12, 10);
-    demoRectA.addChild(rectALabel);
-    uiLayer.addChild(demoRectA);
+    demoRectAContainer.addChild(demoRectA, rectALabel);
+    uiLayer.addChild(demoRectAContainer);
   
+    demoRectBContainer = new Container();
+    demoRectBContainer.position.set(demoRectState.b.x, demoRectState.b.y);
+    demoRectBContainer.eventMode = 'static';
+    demoRectBContainer.cursor = 'pointer';
+    demoRectBContainer.on('pointerdown', (evt) => startDemoDrag('b', evt));
     demoRectB = new Graphics();
     demoRectB.roundRect(0, 0, 210, 120, 12);
     demoRectB.fill({ color: 0x223149, alpha: 0.88 });
     demoRectB.stroke({ width: 1, color: 0x8bb9ff, alpha: 0.7 });
-    demoRectB.position.set(demoRectState.b.x, demoRectState.b.y);
-    demoRectB.eventMode = 'static';
-    demoRectB.cursor = 'pointer';
-    demoRectB.on('pointerdown', (evt) => startDemoDrag('b', evt));
     const rectBLabel = createBitmapTextNode('Rectangle B', { fill: 0xdfe8ff, fontSize: 14, fontWeight: '600' });
     rectBLabel.position.set(12, 12);
-    demoRectB.addChild(rectBLabel);
-    uiLayer.addChild(demoRectB);
+    demoRectBContainer.addChild(demoRectB, rectBLabel);
+    uiLayer.addChild(demoRectBContainer);
   
     drawHull();
   

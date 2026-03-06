@@ -57,6 +57,7 @@ let demoGreenMidLabel: BitmapText | null = null;
 let demoCurveLabel1: BitmapText | null = null;
 let demoCurveLabel2: BitmapText | null = null;
 let demoCurveLabelM: BitmapText | null = null;
+let demoCurveLabelL: BitmapText | null = null;
 let demoC1TanStartLabel: BitmapText | null = null;
 let demoC1TanEndLabel: BitmapText | null = null;
 let demoC2TanStartLabel: BitmapText | null = null;
@@ -683,6 +684,10 @@ function renderGeometry() {
         demoCurveLabelM = createBitmapTextNode('CM', { fill: 0x7dd3fc, fontSize: 12, fontWeight: '600' });
         demoCurveLabelM.zIndex = 9998;
       }
+      if (!demoCurveLabelL) {
+        demoCurveLabelL = createBitmapTextNode('L', { fill: 0xf4d35e, fontSize: 12, fontWeight: '600' });
+        demoCurveLabelL.zIndex = 9998;
+      }
       if (!demoC1TanStartLabel) {
         demoC1TanStartLabel = createBitmapTextNode('T1A', { fill: s1Color, fontSize: 11, fontWeight: '600' });
         demoC1TanStartLabel.zIndex = 9998;
@@ -758,6 +763,7 @@ function renderGeometry() {
       if (demoCurveLabel1.parent === null) uiLayer.addChild(demoCurveLabel1);
       if (demoCurveLabel2.parent === null) uiLayer.addChild(demoCurveLabel2);
       if (demoCurveLabelM.parent === null) uiLayer.addChild(demoCurveLabelM);
+      if (demoCurveLabelL.parent === null) uiLayer.addChild(demoCurveLabelL);
       if (demoC1TanStartLabel.parent === null) uiLayer.addChild(demoC1TanStartLabel);
       if (demoC1TanEndLabel.parent === null) uiLayer.addChild(demoC1TanEndLabel);
       if (demoC2TanStartLabel.parent === null) uiLayer.addChild(demoC2TanStartLabel);
@@ -779,6 +785,7 @@ function renderGeometry() {
       demoCurveLabel1.visible = false;
       demoCurveLabel2.visible = false;
       demoCurveLabelM.visible = false;
+      demoCurveLabelL.visible = false;
       demoC1TanStartLabel.visible = false;
       demoC1TanEndLabel.visible = false;
       demoC2TanStartLabel.visible = false;
@@ -1392,57 +1399,168 @@ function renderGeometry() {
               movingPoint = lerpPt(cmEndRay.start, cmEndRay.end, lenTMB > 1e-6 ? remaining / lenTMB : 0);
             }
 
-            const pointToSegmentDistance = (
-              p: { x: number; y: number },
+            const sampleSegment = (
               a: { x: number; y: number },
-              b: { x: number; y: number }
+              b: { x: number; y: number },
+              count: number
             ) => {
-              const vx = b.x - a.x;
-              const vy = b.y - a.y;
-              const den = vx * vx + vy * vy;
-              if (den <= 1e-6) return Math.hypot(p.x - a.x, p.y - a.y);
-              const t = clamp(((p.x - a.x) * vx + (p.y - a.y) * vy) / den, 0, 1);
-              const px = a.x + t * vx;
-              const py = a.y + t * vy;
-              return Math.hypot(p.x - px, p.y - py);
+              const pts: Array<{ x: number; y: number }> = [];
+              const n = Math.max(2, count);
+              for (let i = 0; i <= n; i += 1) {
+                const t = i / n;
+                pts.push({
+                  x: a.x + (b.x - a.x) * t,
+                  y: a.y + (b.y - a.y) * t
+                });
+              }
+              return pts;
             };
 
-            const pointToQuadDistance = (
-              p: { x: number; y: number },
+            const sampleQuad = (
               p0: { x: number; y: number },
               p1: { x: number; y: number },
-              p2: { x: number; y: number }
+              p2: { x: number; y: number },
+              count: number
             ) => {
-              const samples = 200;
-              let best = Number.POSITIVE_INFINITY;
-              let prev = quadPoint(p0, p1, p2, 0);
-              for (let i = 1; i <= samples; i += 1) {
-                const t = i / samples;
-                const cur = quadPoint(p0, p1, p2, t);
-                const d = pointToSegmentDistance(p, prev, cur);
-                if (d < best) best = d;
-                prev = cur;
+              const pts: Array<{ x: number; y: number }> = [];
+              const n = Math.max(8, count);
+              for (let i = 0; i <= n; i += 1) {
+                const t = i / n;
+                pts.push(quadPoint(p0, p1, p2, t));
               }
-              return best;
+              return pts;
             };
 
-            const tangentDistances = [
-              pointToSegmentDistance(movingPoint, c1StartRay.start, c1StartRay.end), // T1A
-              pointToSegmentDistance(movingPoint, c2StartRay.start, c2StartRay.end), // T2A
-              pointToSegmentDistance(movingPoint, c1EndRay.start, c1EndRay.end), // T1B
-              pointToSegmentDistance(movingPoint, c2EndRay.start, c2EndRay.end) // T2B
+            const side1Samples = [
+              ...sampleSegment(c1StartRay.start, c1StartRay.end, 18),
+              ...sampleQuad(c1Start, c1Control, c1End, 100),
+              ...sampleSegment(c1EndRay.start, c1EndRay.end, 18)
             ];
-            const curveDistances = [
-              pointToQuadDistance(movingPoint, c1Start, c1Control, c1End), // C1
-              pointToQuadDistance(movingPoint, c2Start, c2Control, c2End) // C2
+            const side2Samples = [
+              ...sampleSegment(c2StartRay.start, c2StartRay.end, 18),
+              ...sampleQuad(c2Start, c2Control, c2End, 100),
+              ...sampleSegment(c2EndRay.start, c2EndRay.end, 18)
             ];
-            const radius = Math.min(...tangentDistances, ...curveDistances);
-            if (Number.isFinite(radius) && radius > 1e-3) {
-              hullGfx.circle(movingPoint.x, movingPoint.y, radius);
-              hullGfx.stroke({ width: 1, color: 0x9ee8ff, alpha: 0.85 });
+
+            const closestPointOnPolyline = (p: { x: number; y: number }, samples: Array<{ x: number; y: number }>) => {
+              let bestD = Number.POSITIVE_INFINITY;
+              let bestP = samples[0] ?? { x: p.x, y: p.y };
+              for (let i = 1; i < samples.length; i += 1) {
+                const a = samples[i - 1];
+                const b = samples[i];
+                const vx = b.x - a.x;
+                const vy = b.y - a.y;
+                const den = vx * vx + vy * vy;
+                let t = 0;
+                if (den > 1e-9) t = clamp(((p.x - a.x) * vx + (p.y - a.y) * vy) / den, 0, 1);
+                const q = { x: a.x + t * vx, y: a.y + t * vy };
+                const d = Math.hypot(p.x - q.x, p.y - q.y);
+                if (d < bestD) {
+                  bestD = d;
+                  bestP = q;
+                }
+              }
+              return { point: bestP, dist: bestD };
+            };
+
+            const samplePolylineAtProgress = (samples: Array<{ x: number; y: number }>, t: number) => {
+              if (samples.length <= 1) return samples[0] ?? movingPoint;
+              const tt = clamp(t, 0, 1);
+              let total = 0;
+              for (let i = 1; i < samples.length; i += 1) {
+                total += dist(samples[i - 1], samples[i]);
+              }
+              if (total <= 1e-6) return samples[0];
+              let remaining = total * tt;
+              for (let i = 1; i < samples.length; i += 1) {
+                const a = samples[i - 1];
+                const b = samples[i];
+                const segLen = dist(a, b);
+                if (remaining <= segLen) {
+                  return lerpPt(a, b, segLen > 1e-6 ? remaining / segLen : 0);
+                }
+                remaining -= segLen;
+              }
+              return samples[samples.length - 1];
+            };
+
+            const cmSeeds = [
+              ...sampleSegment(cmStartRay.end, cmStartRay.start, 28),
+              ...cmSamples,
+              ...sampleSegment(cmEndRay.start, cmEndRay.end, 28)
+            ];
+
+            const bisectorPoints: Array<{ x: number; y: number }> = [];
+            for (const seed of cmSeeds) {
+              let p = { x: seed.x, y: seed.y };
+              let delta = 0;
+              for (let iter = 0; iter < 16; iter += 1) {
+                const c1 = closestPointOnPolyline(p, side1Samples);
+                const c2 = closestPointOnPolyline(p, side2Samples);
+                delta = c1.dist - c2.dist;
+                if (Math.abs(delta) < 0.02) break;
+                const dir = { x: c2.point.x - c1.point.x, y: c2.point.y - c1.point.y };
+                const len = Math.hypot(dir.x, dir.y);
+                if (len < 1e-6) break;
+                const step = clamp(-delta * 0.7, -6, 6);
+                p = { x: p.x + (dir.x / len) * step, y: p.y + (dir.y / len) * step };
+              }
+              const c1f = closestPointOnPolyline(p, side1Samples);
+              const c2f = closestPointOnPolyline(p, side2Samples);
+              if (Math.abs(c1f.dist - c2f.dist) < 0.15) {
+                bisectorPoints.push(p);
+              }
             }
 
-            hullGfx.circle(movingPoint.x, movingPoint.y, 4);
+            if (bisectorPoints.length > 1) {
+              hullGfx.moveTo(bisectorPoints[0].x, bisectorPoints[0].y);
+              for (let i = 1; i < bisectorPoints.length; i += 1) {
+                hullGfx.lineTo(bisectorPoints[i].x, bisectorPoints[i].y);
+              }
+              hullGfx.stroke({ width: 1.4, color: 0xf4d35e, alpha: 0.9 });
+              if (demoCurveLabelL) {
+                const p0 = bisectorPoints[0];
+                const p1 = bisectorPoints[1];
+                demoCurveLabelL.tint = 0xf4d35e;
+                queueLabel(
+                  'L',
+                  demoCurveLabelL,
+                  p0,
+                  'curve',
+                  145,
+                  { x: p1.x - p0.x, y: p1.y - p0.y },
+                  'tr'
+                );
+              }
+            }
+
+            let bitangentCenter = movingPoint;
+            if (bisectorPoints.length > 1) {
+              bitangentCenter = samplePolylineAtProgress(bisectorPoints, cmPathSliderValue);
+            }
+            for (let iter = 0; iter < 12; iter += 1) {
+              const c1 = closestPointOnPolyline(bitangentCenter, side1Samples);
+              const c2 = closestPointOnPolyline(bitangentCenter, side2Samples);
+              const delta = c1.dist - c2.dist;
+              if (Math.abs(delta) < 0.01) break;
+              const dir = { x: c2.point.x - c1.point.x, y: c2.point.y - c1.point.y };
+              const len = Math.hypot(dir.x, dir.y);
+              if (len < 1e-6) break;
+              const step = clamp(-delta * 0.7, -4, 4);
+              bitangentCenter = {
+                x: bitangentCenter.x + (dir.x / len) * step,
+                y: bitangentCenter.y + (dir.y / len) * step
+              };
+            }
+            const c1Bitangent = closestPointOnPolyline(bitangentCenter, side1Samples);
+            const c2Bitangent = closestPointOnPolyline(bitangentCenter, side2Samples);
+            const bitangentRadius = (c1Bitangent.dist + c2Bitangent.dist) * 0.5;
+            if (Number.isFinite(bitangentRadius) && bitangentRadius > 1e-3) {
+              hullGfx.circle(bitangentCenter.x, bitangentCenter.y, bitangentRadius);
+              hullGfx.stroke({ width: 1, color: 0x9ee8ff, alpha: 0.9 });
+            }
+
+            hullGfx.circle(bitangentCenter.x, bitangentCenter.y, 4);
             hullGfx.fill({ color: 0x9ee8ff, alpha: 0.95 });
           }
         }

@@ -35,7 +35,6 @@ function createBitmapTextNode(text: string, style: BitmapStyle) {
 let app: Application;
 let uiLayer: Container;
 const padding = 14;
-const toolbarHeight = 0;
 
 let demoRectA: Graphics | null = null;
 let demoRectB: Graphics | null = null;
@@ -85,6 +84,16 @@ let demoDragTarget: 'a' | 'b' | null = null;
 let demoDragOffset = { x: 0, y: 0 };
 let demoDragMoveHandler: ((e: PointerEvent) => void) | null = null;
 let demoDragEndHandler: ((e: PointerEvent) => void) | null = null;
+let cmPathSliderContainer: Container | null = null;
+let cmPathSliderTrack: Graphics | null = null;
+let cmPathSliderKnob: Graphics | null = null;
+let cmPathSliderValue = 0.5;
+let cmPathSliderRect = { x: 0, y: 0, width: 260, height: 6 };
+let cmPathSliderPosition = { x: Number.NaN, y: Number.NaN };
+let cmPathSliderMode: 'none' | 'value' | 'move' = 'none';
+let cmPathSliderDragOffset = { x: 0, y: 0 };
+let cmPathSliderMoveHandler: ((e: PointerEvent) => void) | null = null;
+let cmPathSliderEndHandler: ((e: PointerEvent) => void) | null = null;
 const LABEL_POSITION_LERP = 0.35;
 const LABEL_POSITION_EPS = 0.05;
 const labelPositionTargets = new Map<BitmapText, { x: number; y: number }>();
@@ -1338,6 +1347,106 @@ function renderGeometry() {
           );
         }
 
+        if (cmStartRay && cmEndRay && c1StartRay && c2StartRay && c1EndRay && c2EndRay) {
+          const dist = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.hypot(b.x - a.x, b.y - a.y);
+          const lerpPt = (a: { x: number; y: number }, b: { x: number; y: number }, t: number) => ({
+            x: a.x + (b.x - a.x) * t,
+            y: a.y + (b.y - a.y) * t
+          });
+          const cmSamplesCount = 120;
+          const cmSamples: Array<{ x: number; y: number }> = [];
+          for (let i = 0; i <= cmSamplesCount; i += 1) {
+            const t = i / cmSamplesCount;
+            const p1 = quadPoint(c1Start, c1Control, c1End, t);
+            const p2 = quadPoint(c2Start, c2Control, c2End, t);
+            cmSamples.push({ x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 });
+          }
+
+          const lenTMA = dist(cmStartRay.end, cmStartRay.start);
+          let lenCM = 0;
+          for (let i = 1; i < cmSamples.length; i += 1) {
+            lenCM += dist(cmSamples[i - 1], cmSamples[i]);
+          }
+          const lenTMB = dist(cmEndRay.start, cmEndRay.end);
+          const totalLen = lenTMA + lenCM + lenTMB;
+
+          if (totalLen > 1e-6) {
+            let remaining = clamp(cmPathSliderValue, 0, 1) * totalLen;
+            let movingPoint = cmSamples[0];
+            if (remaining <= lenTMA) {
+              movingPoint = lerpPt(cmStartRay.end, cmStartRay.start, lenTMA > 1e-6 ? remaining / lenTMA : 0);
+            } else if (remaining <= lenTMA + lenCM) {
+              remaining -= lenTMA;
+              movingPoint = cmSamples[0];
+              for (let i = 1; i < cmSamples.length; i += 1) {
+                const segLen = dist(cmSamples[i - 1], cmSamples[i]);
+                if (remaining <= segLen) {
+                  movingPoint = lerpPt(cmSamples[i - 1], cmSamples[i], segLen > 1e-6 ? remaining / segLen : 0);
+                  break;
+                }
+                remaining -= segLen;
+                movingPoint = cmSamples[i];
+              }
+            } else {
+              remaining -= (lenTMA + lenCM);
+              movingPoint = lerpPt(cmEndRay.start, cmEndRay.end, lenTMB > 1e-6 ? remaining / lenTMB : 0);
+            }
+
+            const pointToSegmentDistance = (
+              p: { x: number; y: number },
+              a: { x: number; y: number },
+              b: { x: number; y: number }
+            ) => {
+              const vx = b.x - a.x;
+              const vy = b.y - a.y;
+              const den = vx * vx + vy * vy;
+              if (den <= 1e-6) return Math.hypot(p.x - a.x, p.y - a.y);
+              const t = clamp(((p.x - a.x) * vx + (p.y - a.y) * vy) / den, 0, 1);
+              const px = a.x + t * vx;
+              const py = a.y + t * vy;
+              return Math.hypot(p.x - px, p.y - py);
+            };
+
+            const pointToQuadDistance = (
+              p: { x: number; y: number },
+              p0: { x: number; y: number },
+              p1: { x: number; y: number },
+              p2: { x: number; y: number }
+            ) => {
+              const samples = 200;
+              let best = Number.POSITIVE_INFINITY;
+              let prev = quadPoint(p0, p1, p2, 0);
+              for (let i = 1; i <= samples; i += 1) {
+                const t = i / samples;
+                const cur = quadPoint(p0, p1, p2, t);
+                const d = pointToSegmentDistance(p, prev, cur);
+                if (d < best) best = d;
+                prev = cur;
+              }
+              return best;
+            };
+
+            const tangentDistances = [
+              pointToSegmentDistance(movingPoint, c1StartRay.start, c1StartRay.end), // T1A
+              pointToSegmentDistance(movingPoint, c2StartRay.start, c2StartRay.end), // T2A
+              pointToSegmentDistance(movingPoint, c1EndRay.start, c1EndRay.end), // T1B
+              pointToSegmentDistance(movingPoint, c2EndRay.start, c2EndRay.end) // T2B
+            ];
+            const curveDistances = [
+              pointToQuadDistance(movingPoint, c1Start, c1Control, c1End), // C1
+              pointToQuadDistance(movingPoint, c2Start, c2Control, c2End) // C2
+            ];
+            const radius = Math.min(...tangentDistances, ...curveDistances);
+            if (Number.isFinite(radius) && radius > 1e-3) {
+              hullGfx.circle(movingPoint.x, movingPoint.y, radius);
+              hullGfx.stroke({ width: 1, color: 0x9ee8ff, alpha: 0.85 });
+            }
+
+            hullGfx.circle(movingPoint.x, movingPoint.y, 4);
+            hullGfx.fill({ color: 0x9ee8ff, alpha: 0.95 });
+          }
+        }
+
       }
 
       const placedLabelRects = placeLabels(w, h, labelRequests);
@@ -1365,13 +1474,6 @@ function renderGeometry() {
       }
   
     };
-  
-    // Toolbar
-    const toolbar = new Graphics();
-    toolbar.roundRect(padding, padding, w - padding * 2, toolbarHeight, 12);
-    toolbar.fill({ color: 0x0c1019, alpha: 0.9 });
-    toolbar.stroke({ width: 1, color: 0x1c2637, alpha: 0.7 });
-    uiLayer.addChild(toolbar);
   
     const startDemoDrag = (target: 'a' | 'b', evt: any) => {
       evt.stopPropagation();
@@ -1444,6 +1546,148 @@ function renderGeometry() {
     rectBLabel.position.set(12, 12);
     demoRectBContainer.addChild(demoRectB, rectBLabel);
     uiLayer.addChild(demoRectBContainer);
+
+    if (cmPathSliderMoveHandler) {
+      window.removeEventListener('pointermove', cmPathSliderMoveHandler);
+      cmPathSliderMoveHandler = null;
+    }
+    if (cmPathSliderEndHandler) {
+      window.removeEventListener('pointerup', cmPathSliderEndHandler);
+      cmPathSliderEndHandler = null;
+    }
+    if (cmPathSliderContainer?.parent) {
+      cmPathSliderContainer.parent.removeChild(cmPathSliderContainer);
+    }
+    if (cmPathSliderContainer) {
+      cmPathSliderContainer.destroy({ children: true });
+    }
+
+    cmPathSliderContainer = new Container();
+    cmPathSliderContainer.zIndex = 10020;
+    uiLayer.addChild(cmPathSliderContainer);
+
+    const sliderWidth = Math.max(220, Math.min(360, Math.round(w * 0.34)));
+    cmPathSliderRect = {
+      x: 0,
+      y: 0,
+      width: sliderWidth,
+      height: 6
+    };
+    const clampSliderPosition = (x: number, y: number) => {
+      const minX = padding;
+      const maxX = Math.max(minX, w - padding - cmPathSliderRect.width);
+      const minY = padding;
+      const maxY = Math.max(minY, h - padding - 24);
+      return { x: clamp(x, minX, maxX), y: clamp(y, minY, maxY) };
+    };
+    if (!Number.isFinite(cmPathSliderPosition.x) || !Number.isFinite(cmPathSliderPosition.y)) {
+      cmPathSliderPosition = { x: padding + 24, y: padding + 24 };
+    }
+    cmPathSliderPosition = clampSliderPosition(cmPathSliderPosition.x, cmPathSliderPosition.y);
+    cmPathSliderContainer.position.set(cmPathSliderPosition.x, cmPathSliderPosition.y);
+
+    cmPathSliderTrack = new Graphics();
+    cmPathSliderTrack.eventMode = 'static';
+    cmPathSliderTrack.cursor = 'move';
+    cmPathSliderKnob = new Graphics();
+    cmPathSliderKnob.eventMode = 'static';
+    cmPathSliderKnob.cursor = 'pointer';
+    const cmPathSliderText = createBitmapTextNode('Position center (t=0.50)', {
+      fill: 0x9ee8ff,
+      fontSize: 12,
+      fontWeight: '600'
+    });
+    cmPathSliderText.position.set(0, -18);
+    cmPathSliderContainer.addChild(cmPathSliderTrack, cmPathSliderKnob, cmPathSliderText);
+
+    const redrawCmPathSlider = () => {
+      if (!cmPathSliderTrack || !cmPathSliderKnob) return;
+      const r = cmPathSliderRect;
+      const knobX = r.x + clamp(cmPathSliderValue, 0, 1) * r.width;
+      const knobY = r.y + r.height * 0.5;
+      cmPathSliderText.text = `Position center (t=${cmPathSliderValue.toFixed(2)})`;
+
+      cmPathSliderTrack.clear();
+      cmPathSliderTrack.roundRect(r.x, r.y, r.width, r.height, r.height * 0.5);
+      cmPathSliderTrack.fill({ color: 0x1d2b44, alpha: 0.95 });
+      cmPathSliderTrack.stroke({ width: 1, color: 0x5aa7ff, alpha: 0.75 });
+
+      cmPathSliderTrack.roundRect(r.x, r.y, knobX - r.x, r.height, r.height * 0.5);
+      cmPathSliderTrack.fill({ color: 0x6ad8ff, alpha: 0.85 });
+
+      cmPathSliderKnob.clear();
+      cmPathSliderKnob.circle(knobX, knobY, 8);
+      cmPathSliderKnob.fill({ color: 0x9ee8ff, alpha: 0.98 });
+      cmPathSliderKnob.stroke({ width: 1, color: 0x0b1b2b, alpha: 0.95 });
+    };
+
+    const setCmPathSliderFromCanvasX = (x: number, triggerRedraw: boolean) => {
+      const r = cmPathSliderRect;
+      const localX = x - (cmPathSliderContainer?.x ?? 0);
+      const nx = clamp(localX - r.x, 0, r.width);
+      cmPathSliderValue = r.width > 1e-6 ? nx / r.width : 0;
+      redrawCmPathSlider();
+      if (triggerRedraw) drawHull();
+    };
+
+    const beginCmPathSliderValueDrag = (evt: any) => {
+      evt.stopPropagation();
+      const p = evt.global ?? { x: evt.clientX ?? 0, y: evt.clientY ?? 0 };
+      cmPathSliderMode = 'value';
+      setCmPathSliderFromCanvasX(p.x, true);
+      cmPathSliderMoveHandler = (e: PointerEvent) => {
+        if (cmPathSliderMode !== 'value') return;
+        const next = toCanvasPoint(e.clientX, e.clientY);
+        setCmPathSliderFromCanvasX(next.x, true);
+      };
+      cmPathSliderEndHandler = () => {
+        cmPathSliderMode = 'none';
+        if (cmPathSliderMoveHandler) {
+          window.removeEventListener('pointermove', cmPathSliderMoveHandler);
+          cmPathSliderMoveHandler = null;
+        }
+        if (cmPathSliderEndHandler) {
+          window.removeEventListener('pointerup', cmPathSliderEndHandler);
+          cmPathSliderEndHandler = null;
+        }
+      };
+      window.addEventListener('pointermove', cmPathSliderMoveHandler);
+      window.addEventListener('pointerup', cmPathSliderEndHandler);
+    };
+
+    const beginCmPathSliderMoveDrag = (evt: any) => {
+      evt.stopPropagation();
+      const p = evt.global ?? { x: evt.clientX ?? 0, y: evt.clientY ?? 0 };
+      cmPathSliderMode = 'move';
+      cmPathSliderDragOffset = {
+        x: p.x - (cmPathSliderContainer?.x ?? 0),
+        y: p.y - (cmPathSliderContainer?.y ?? 0)
+      };
+      cmPathSliderMoveHandler = (e: PointerEvent) => {
+        if (cmPathSliderMode !== 'move' || !cmPathSliderContainer) return;
+        const next = toCanvasPoint(e.clientX, e.clientY);
+        const pos = clampSliderPosition(next.x - cmPathSliderDragOffset.x, next.y - cmPathSliderDragOffset.y);
+        cmPathSliderPosition = pos;
+        cmPathSliderContainer.position.set(pos.x, pos.y);
+      };
+      cmPathSliderEndHandler = () => {
+        cmPathSliderMode = 'none';
+        if (cmPathSliderMoveHandler) {
+          window.removeEventListener('pointermove', cmPathSliderMoveHandler);
+          cmPathSliderMoveHandler = null;
+        }
+        if (cmPathSliderEndHandler) {
+          window.removeEventListener('pointerup', cmPathSliderEndHandler);
+          cmPathSliderEndHandler = null;
+        }
+      };
+      window.addEventListener('pointermove', cmPathSliderMoveHandler);
+      window.addEventListener('pointerup', cmPathSliderEndHandler);
+    };
+
+    cmPathSliderTrack.on('pointerdown', beginCmPathSliderMoveDrag);
+    cmPathSliderKnob.on('pointerdown', beginCmPathSliderValueDrag);
+    redrawCmPathSlider();
   
     drawHull();
   

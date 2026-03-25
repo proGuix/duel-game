@@ -35,6 +35,7 @@ function createBitmapTextNode(text: string, style: BitmapStyle) {
 let app: Application;
 let uiLayer: Container;
 const padding = 14;
+const kPathColor = 0xa78bfa;
 
 let demoRectA: Graphics | null = null;
 let demoRectB: Graphics | null = null;
@@ -58,6 +59,10 @@ let demoCurveLabel1: BitmapText | null = null;
 let demoCurveLabel2: BitmapText | null = null;
 let demoCurveLabelM: BitmapText | null = null;
 let demoCurveLabelL: BitmapText | null = null;
+let demoCurveLabelLM: BitmapText | null = null;
+let demoCurveLabelK: BitmapText | null = null;
+let demoCurveLabelKA: BitmapText | null = null;
+let demoCurveLabelKB: BitmapText | null = null;
 let demoC1TanStartLabel: BitmapText | null = null;
 let demoC1TanEndLabel: BitmapText | null = null;
 let demoC2TanStartLabel: BitmapText | null = null;
@@ -688,6 +693,22 @@ function renderGeometry() {
         demoCurveLabelL = createBitmapTextNode('L', { fill: 0xf4d35e, fontSize: 12, fontWeight: '600' });
         demoCurveLabelL.zIndex = 9998;
       }
+      if (!demoCurveLabelLM) {
+        demoCurveLabelLM = createBitmapTextNode('LM', { fill: 0xf4d35e, fontSize: 11, fontWeight: '600' });
+        demoCurveLabelLM.zIndex = 9998;
+      }
+      if (!demoCurveLabelK) {
+        demoCurveLabelK = createBitmapTextNode('K', { fill: kPathColor, fontSize: 12, fontWeight: '600' });
+        demoCurveLabelK.zIndex = 9998;
+      }
+      if (!demoCurveLabelKA) {
+        demoCurveLabelKA = createBitmapTextNode('KA', { fill: kPathColor, fontSize: 11, fontWeight: '600' });
+        demoCurveLabelKA.zIndex = 9998;
+      }
+      if (!demoCurveLabelKB) {
+        demoCurveLabelKB = createBitmapTextNode('KB', { fill: kPathColor, fontSize: 11, fontWeight: '600' });
+        demoCurveLabelKB.zIndex = 9998;
+      }
       if (!demoC1TanStartLabel) {
         demoC1TanStartLabel = createBitmapTextNode('T1A', { fill: s1Color, fontSize: 11, fontWeight: '600' });
         demoC1TanStartLabel.zIndex = 9998;
@@ -764,6 +785,10 @@ function renderGeometry() {
       if (demoCurveLabel2.parent === null) uiLayer.addChild(demoCurveLabel2);
       if (demoCurveLabelM.parent === null) uiLayer.addChild(demoCurveLabelM);
       if (demoCurveLabelL.parent === null) uiLayer.addChild(demoCurveLabelL);
+      if (demoCurveLabelLM.parent === null) uiLayer.addChild(demoCurveLabelLM);
+      if (demoCurveLabelK.parent === null) uiLayer.addChild(demoCurveLabelK);
+      if (demoCurveLabelKA.parent === null) uiLayer.addChild(demoCurveLabelKA);
+      if (demoCurveLabelKB.parent === null) uiLayer.addChild(demoCurveLabelKB);
       if (demoC1TanStartLabel.parent === null) uiLayer.addChild(demoC1TanStartLabel);
       if (demoC1TanEndLabel.parent === null) uiLayer.addChild(demoC1TanEndLabel);
       if (demoC2TanStartLabel.parent === null) uiLayer.addChild(demoC2TanStartLabel);
@@ -786,6 +811,10 @@ function renderGeometry() {
       demoCurveLabel2.visible = false;
       demoCurveLabelM.visible = false;
       demoCurveLabelL.visible = false;
+      demoCurveLabelLM.visible = false;
+      demoCurveLabelK.visible = false;
+      demoCurveLabelKA.visible = false;
+      demoCurveLabelKB.visible = false;
       demoC1TanStartLabel.visible = false;
       demoC1TanEndLabel.visible = false;
       demoC2TanStartLabel.visible = false;
@@ -1336,7 +1365,7 @@ function renderGeometry() {
           if (i === 0) hullGfx.moveTo(mid.x, mid.y);
           else hullGfx.lineTo(mid.x, mid.y);
         }
-        hullGfx.stroke({ width: 2, color: 0x7dd3fc, alpha: 0.85 });
+        hullGfx.stroke({ width: 1, color: 0x7dd3fc, alpha: 0.85 });
         const cmT = 0.5;
         const cmP1 = quadPoint(c1Start, c1Control, c1End, cmT);
         const cmP2 = quadPoint(c2Start, c2Control, c2End, cmT);
@@ -1511,13 +1540,314 @@ function renderGeometry() {
                 bisectorPoints.push(p);
               }
             }
+            const polylineLength = (samples: Array<{ x: number; y: number }>) => {
+              let total = 0;
+              for (let i = 1; i < samples.length; i += 1) total += dist(samples[i - 1], samples[i]);
+              return total;
+            };
+            const remapSliderToProgress = (u: number, pivot: number) => {
+              const uu = clamp(u, 0, 1);
+              const p = clamp(pivot, 0, 1);
+              if (uu <= 0.5) {
+                if (p <= 1e-8) return 0;
+                return (uu / 0.5) * p;
+              }
+              if (p >= 1 - 1e-8) return 1;
+              return p + ((uu - 0.5) / 0.5) * (1 - p);
+            };
+            let lSliderPivotProgress = 0.5;
 
             if (bisectorPoints.length > 1) {
               hullGfx.moveTo(bisectorPoints[0].x, bisectorPoints[0].y);
               for (let i = 1; i < bisectorPoints.length; i += 1) {
                 hullGfx.lineTo(bisectorPoints[i].x, bisectorPoints[i].y);
               }
-              hullGfx.stroke({ width: 1.4, color: 0xf4d35e, alpha: 0.9 });
+              hullGfx.stroke({ width: 1, color: 0xf4d35e, alpha: 0.9 });
+
+              const pointInRect = (p: { x: number; y: number }, x0: number, y0: number, x1: number, y1: number) =>
+                p.x >= x0 && p.x <= x1 && p.y >= y0 && p.y <= y1;
+              const segmentIntersection = (
+                a: { x: number; y: number },
+                b: { x: number; y: number },
+                c: { x: number; y: number },
+                d: { x: number; y: number }
+              ) => {
+                const r = { x: b.x - a.x, y: b.y - a.y };
+                const s = { x: d.x - c.x, y: d.y - c.y };
+                const den = r.x * s.y - r.y * s.x;
+                if (Math.abs(den) < 1e-8) return null;
+                const ca = { x: c.x - a.x, y: c.y - a.y };
+                const t = (ca.x * s.y - ca.y * s.x) / den;
+                const u = (ca.x * r.y - ca.y * r.x) / den;
+                if (t < -1e-6 || t > 1 + 1e-6 || u < -1e-6 || u > 1 + 1e-6) return null;
+                return {
+                  t: clamp(t, 0, 1),
+                  point: { x: a.x + r.x * clamp(t, 0, 1), y: a.y + r.y * clamp(t, 0, 1) }
+                };
+              };
+              const collectRectIntersections = (
+                samples: Array<{ x: number; y: number }>,
+                x0: number,
+                y0: number,
+                x1: number,
+                y1: number
+              ) => {
+                const edges: Array<[{ x: number; y: number }, { x: number; y: number }]> = [
+                  [{ x: x0, y: y0 }, { x: x1, y: y0 }],
+                  [{ x: x1, y: y0 }, { x: x1, y: y1 }],
+                  [{ x: x1, y: y1 }, { x: x0, y: y1 }],
+                  [{ x: x0, y: y1 }, { x: x0, y: y0 }]
+                ];
+                const out: Array<{ point: { x: number; y: number }; along: number }> = [];
+                let cum = 0;
+                for (let i = 1; i < samples.length; i += 1) {
+                  const a = samples[i - 1];
+                  const b = samples[i];
+                  const segLen = dist(a, b);
+                  if (segLen < 1e-8) continue;
+                  const hits: Array<{ t: number; point: { x: number; y: number } }> = [];
+                  for (const [e0, e1] of edges) {
+                    const hit = segmentIntersection(a, b, e0, e1);
+                    if (hit) hits.push(hit);
+                  }
+                  hits.sort((h1, h2) => h1.t - h2.t);
+                  const dedup: Array<{ t: number; point: { x: number; y: number } }> = [];
+                  for (const h of hits) {
+                    const prev = dedup[dedup.length - 1];
+                    if (!prev || dist(prev.point, h.point) > 1e-4) dedup.push(h);
+                  }
+                  for (const h of dedup) {
+                    out.push({ point: h.point, along: cum + h.t * segLen });
+                  }
+                  cum += segLen;
+                }
+                return out;
+              };
+              const samplePolylineAtLength = (samples: Array<{ x: number; y: number }>, s: number) => {
+                if (samples.length <= 1) return samples[0] ?? { x: 0, y: 0 };
+                let total = 0;
+                for (let i = 1; i < samples.length; i += 1) total += dist(samples[i - 1], samples[i]);
+                const target = clamp(s, 0, total);
+                let cum = 0;
+                for (let i = 1; i < samples.length; i += 1) {
+                  const a = samples[i - 1];
+                  const b = samples[i];
+                  const segLen = dist(a, b);
+                  if (cum + segLen >= target) {
+                    const t = segLen > 1e-8 ? (target - cum) / segLen : 0;
+                    return lerpPt(a, b, t);
+                  }
+                  cum += segLen;
+                }
+                return samples[samples.length - 1];
+              };
+              const insideA = bisectorPoints.map((p) => pointInRect(p, rectAX0, rectAY0, rectAX1, rectAY1));
+              const insideB = bisectorPoints.map((p) => pointInRect(p, rectBX0, rectBY0, rectBX1, rectBY1));
+
+              const intersectionsA = collectRectIntersections(bisectorPoints, rectAX0, rectAY0, rectAX1, rectAY1);
+              const intersectionsB = collectRectIntersections(bisectorPoints, rectBX0, rectBY0, rectBX1, rectBY1);
+              const pickClosestTo = (
+                items: Array<{ point: { x: number; y: number }; along: number }>,
+                target: { x: number; y: number }
+              ) => {
+                if (items.length === 0) return null;
+                let best = items[0];
+                let bestD = dist(best.point, target);
+                for (let i = 1; i < items.length; i += 1) {
+                  const d = dist(items[i].point, target);
+                  if (d < bestD) {
+                    best = items[i];
+                    bestD = d;
+                  }
+                }
+                return best;
+              };
+              const selectedA = pickClosestTo(intersectionsA, ptB);
+              const selectedB = pickClosestTo(intersectionsB, ptA);
+              if (selectedA && selectedB) {
+                const from = Math.min(selectedA.along, selectedB.along);
+                const to = Math.max(selectedA.along, selectedB.along);
+                if (to - from > 1e-6) {
+                  const lTotal = polylineLength(bisectorPoints);
+                  const mid = samplePolylineAtLength(bisectorPoints, (from + to) * 0.5);
+                  if (lTotal > 1e-6) {
+                    lSliderPivotProgress = clamp(((from + to) * 0.5) / lTotal, 0, 1);
+                  }
+                  hullGfx.circle(mid.x, mid.y, 4);
+                  hullGfx.fill({ color: 0xf4d35e, alpha: 0.9 });
+                  if (demoCurveLabelLM) {
+                    demoCurveLabelLM.tint = 0xf4d35e;
+                    queueLabel('LM', demoCurveLabelLM, mid, 'point', 170, undefined, 'tr');
+                  }
+                }
+              }
+
+              let t1 = -1;
+              let t2 = -1;
+              let lastA = -1;
+              for (let i = 0; i < bisectorPoints.length; i += 1) {
+                if (insideA[i]) lastA = i;
+                if (insideB[i] && lastA >= 0) {
+                  t1 = lastA;
+                  t2 = i;
+                  break;
+                }
+              }
+              const kMask = bisectorPoints.map((_, i) => {
+                if (t1 < 0 || t2 < 0) return false;
+                if (i <= t1 || i >= t2) return false;
+                return !insideA[i] && !insideB[i];
+              });
+
+              let kHasStroke = false;
+              let kOpen = false;
+              let currentRun: Array<{ x: number; y: number }> = [];
+              const kRuns: Array<Array<{ x: number; y: number }>> = [];
+              for (let i = 0; i < bisectorPoints.length; i += 1) {
+                if (!kMask[i]) {
+                  if (kOpen && currentRun.length > 1) {
+                    kRuns.push(currentRun);
+                  }
+                  kOpen = false;
+                  currentRun = [];
+                  continue;
+                }
+                const p = bisectorPoints[i];
+                if (!kOpen) {
+                  hullGfx.moveTo(p.x, p.y);
+                  kOpen = true;
+                  currentRun = [p];
+                } else {
+                  hullGfx.lineTo(p.x, p.y);
+                  kHasStroke = true;
+                  currentRun.push(p);
+                }
+              }
+              if (kOpen && currentRun.length > 1) {
+                kRuns.push(currentRun);
+              }
+              if (kHasStroke) {
+                hullGfx.stroke({ width: 2, color: kPathColor, alpha: 0.95 });
+                if (demoCurveLabelK && kRuns.length > 0) {
+                  const runLength = (run: Array<{ x: number; y: number }>) => {
+                    let len = 0;
+                    for (let i = 1; i < run.length; i += 1) len += dist(run[i - 1], run[i]);
+                    return len;
+                  };
+                  let mainRun = kRuns[0];
+                  let mainLen = runLength(mainRun);
+                  for (let i = 1; i < kRuns.length; i += 1) {
+                    const len = runLength(kRuns[i]);
+                    if (len > mainLen) {
+                      mainLen = len;
+                      mainRun = kRuns[i];
+                    }
+                  }
+                  if (mainRun.length > 1) {
+                    let acc = 0;
+                    let midIdx = 0;
+                    const half = mainLen * 0.5;
+                    for (let i = 1; i < mainRun.length; i += 1) {
+                      acc += dist(mainRun[i - 1], mainRun[i]);
+                      if (acc >= half) {
+                        midIdx = i;
+                        break;
+                      }
+                    }
+                    const prev = mainRun[Math.max(0, midIdx - 1)];
+                    const curr = mainRun[midIdx];
+                    const next = mainRun[Math.min(mainRun.length - 1, midIdx + 1)];
+                    demoCurveLabelK.tint = kPathColor;
+                    queueLabel(
+                      'K',
+                      demoCurveLabelK,
+                      curr,
+                      'curve',
+                      152,
+                      { x: next.x - prev.x, y: next.y - prev.y },
+                      'tr'
+                    );
+                  }
+                }
+              }
+              if (kRuns.length > 0) {
+                const drawNaturalExtension = (
+                  target: { x: number; y: number },
+                  labelId: 'KA' | 'KB',
+                  label: BitmapText | null
+                ) => {
+                  let selectedRun = kRuns[0];
+                  let useRunStart = true;
+                  let near = selectedRun[0];
+                  let nearDist = dist(near, target);
+                  for (const run of kRuns) {
+                    const a = run[0];
+                    const b = run[run.length - 1];
+                    const da = dist(a, target);
+                    const db = dist(b, target);
+                    const d = Math.min(da, db);
+                    if (d < nearDist) {
+                      nearDist = d;
+                      selectedRun = run;
+                      useRunStart = da <= db;
+                      near = da <= db ? a : b;
+                    }
+                  }
+                  if (nearDist <= 1e-6) return;
+
+                  const i0 = useRunStart ? 0 : selectedRun.length - 1;
+                  const i1 = useRunStart ? 1 : selectedRun.length - 2;
+                  const i2 = useRunStart ? Math.min(2, selectedRun.length - 1) : Math.max(0, selectedRun.length - 3);
+                  const p0 = selectedRun[i0];
+                  const p1 = selectedRun[i1];
+                  const p2 = selectedRun[i2];
+
+                  const inwardRaw = { x: p1.x - p0.x, y: p1.y - p0.y };
+                  const inwardLen = Math.hypot(inwardRaw.x, inwardRaw.y);
+                  const inward =
+                    inwardLen > 1e-6
+                      ? { x: inwardRaw.x / inwardLen, y: inwardRaw.y / inwardLen }
+                      : (() => {
+                          const v = { x: target.x - p0.x, y: target.y - p0.y };
+                          const l = Math.hypot(v.x, v.y);
+                          return l > 1e-6 ? { x: v.x / l, y: v.y / l } : { x: 1, y: 0 };
+                        })();
+                  const outward = { x: -inward.x, y: -inward.y };
+
+                  const nextRaw = { x: p2.x - p1.x, y: p2.y - p1.y };
+                  const nextLen = Math.hypot(nextRaw.x, nextRaw.y);
+                  const next =
+                    nextLen > 1e-6 ? { x: nextRaw.x / nextLen, y: nextRaw.y / nextLen } : { x: inward.x, y: inward.y };
+                  const turn = inward.x * next.y - inward.y * next.x;
+
+                  const chord = dist(p0, target);
+                  const base = Math.max(18, Math.min(chord * 0.55, Math.max(24, inwardLen * 3.5)));
+                  const normal = { x: -outward.y, y: outward.x };
+                  const bend = clamp(turn * base * 0.45, -base * 0.6, base * 0.6);
+                  const control = {
+                    x: p0.x + outward.x * base + normal.x * bend,
+                    y: p0.y + outward.y * base + normal.y * bend
+                  };
+
+                  hullGfx.moveTo(p0.x, p0.y);
+                  hullGfx.quadraticCurveTo(control.x, control.y, target.x, target.y);
+                  hullGfx.stroke({ width: 2, color: kPathColor, alpha: 0.95 });
+
+                  if (label) {
+                    label.tint = kPathColor;
+                    const labelAnchor = target;
+                    let labelTan = quadTangent(p0, control, target, 1);
+                    if (Math.hypot(labelTan.x, labelTan.y) < 1e-6) {
+                      labelTan = { x: target.x - p0.x, y: target.y - p0.y };
+                    }
+                    queueLabel(labelId, label, labelAnchor, 'curve', 150, labelTan, 'tr');
+                  }
+                };
+
+                drawNaturalExtension(ptA, 'KA', demoCurveLabelKA);
+                drawNaturalExtension(ptB, 'KB', demoCurveLabelKB);
+              }
+
               if (demoCurveLabelL) {
                 const p0 = bisectorPoints[0];
                 const p1 = bisectorPoints[1];
@@ -1536,7 +1866,10 @@ function renderGeometry() {
 
             let bitangentCenter = movingPoint;
             if (bisectorPoints.length > 1) {
-              bitangentCenter = samplePolylineAtProgress(bisectorPoints, cmPathSliderValue);
+              bitangentCenter = samplePolylineAtProgress(
+                bisectorPoints,
+                remapSliderToProgress(cmPathSliderValue, lSliderPivotProgress)
+              );
             }
             for (let iter = 0; iter < 12; iter += 1) {
               const c1 = closestPointOnPolyline(bitangentCenter, side1Samples);
